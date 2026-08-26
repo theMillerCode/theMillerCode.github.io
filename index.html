@@ -85,7 +85,7 @@
   .status-pill{font-size:10px;padding:3px 9px;border-radius:20px;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;}
   .status-open{background:rgba(53,184,138,0.15);color:var(--pass);border:1px solid rgba(53,184,138,.4);}
   .status-closed{background:rgba(139,146,160,0.15);color:var(--muted);border:1px solid var(--line);}
-  .stamp{position:absolute;top:10px;right:14px;transform:rotate(-6deg);font-family:'Space Grotesk',sans-serif;font-size:9px;font-weight:700;letter-spacing:.08em;padding:2px 7px;border:1.5px solid;border-radius:4px;opacity:.85;}
+  .stamp{display:inline-block;margin-left:8px;transform:rotate(-3deg);font-family:'Space Grotesk',sans-serif;font-size:9px;font-weight:700;letter-spacing:.08em;padding:2px 7px;border:1.5px solid;border-radius:4px;opacity:.85;vertical-align:middle;}
   .stamp.cleared{color:var(--pass);border-color:var(--pass);}
   .stamp.override{color:var(--breach);border-color:var(--breach);}
 
@@ -423,7 +423,23 @@
     $('ackBox').addEventListener('change', e=>{ $('submitTicket').disabled = !e.target.checked; });
   }
 
-  function refreshTicketForm(){ renderLiveGauges(); renderGates(); }
+  function ivrColorFor(ivrVal){
+    const thresh = settings.lowIvrPct;
+    const buffer = 10; // points below threshold still counted as "close"
+    if(ivrVal >= thresh) return 'var(--pass)';
+    if(ivrVal >= thresh - buffer) return 'var(--warn)';
+    return 'var(--breach)';
+  }
+  function updateIvrIndicator(){
+    const input = $('f_ivr');
+    const val = input.value;
+    if(val===''){ input.style.borderColor=''; input.style.boxShadow=''; return; }
+    const color = ivrColorFor(Number(val));
+    input.style.borderColor = color;
+    input.style.boxShadow = 'inset 0 0 0 1px '+color;
+  }
+
+  function refreshTicketForm(){ renderLiveGauges(); renderGates(); updateIvrIndicator(); }
 
   ['f_symbol','f_sector','f_strategy','f_ivr','f_ivrReason','f_daysEarnings','f_daysExp',
    'f_price','f_delta','f_callcost','f_structure','f_optiontype','f_expdate','f_shortstrike','f_longstrike',
@@ -482,6 +498,8 @@
     toggleLongStrike();
     targetTouched = false;
     $('targetHint').textContent = 'Default: 100% for weekly/biweekly wheel trades, 50% for ~45-day spreads — edit as needed.';
+    $('f_ivr').style.borderColor = '';
+    $('f_ivr').style.boxShadow = '';
     refreshTicketForm();
     setView('log');
   });
@@ -494,10 +512,9 @@
       const stampClass = t.gatesAtEntry && t.gatesAtEntry.length>0 ? 'override' : 'cleared';
       const stampText = t.gatesAtEntry && t.gatesAtEntry.length>0 ? 'OVERRIDE' : 'CLEARED';
       return `<div class="ticket" data-id="${t.id}">
-        <div class="stamp ${stampClass}">${stampText}</div>
         <div class="ticket-top">
           <div>
-            <div class="ticket-sym">${t.symbol}</div>
+            <div class="ticket-sym">${t.symbol}<span class="stamp ${stampClass}">${stampText}</span></div>
             <div class="ticket-meta">${t.strategy} · ${t.sector}</div>
           </div>
           <span class="status-pill ${t.status==='open'?'status-open':'status-closed'}">${t.status}</span>
@@ -515,7 +532,8 @@
           </div>
           ${t.gatesAtEntry && t.gatesAtEntry.length ? t.gatesAtEntry.map(g=>`<div class="gate ${g.level}"><div class="gt-title">${g.level==='breach'?'⛔':'⚠'} ${g.title}</div>${g.msg}</div>`).join('') : ''}
 
-          <div class="field"><label>Actual entry</label><input type="number" step="0.01" value="${t.actualEntry||''}" data-f="actualEntry"></div>
+          <div class="field"><label>Actual premium collected ($)</label><input type="number" step="0.01" value="${t.actualEntry||''}" data-f="actualEntry"></div>
+          <div class="helptext" style="margin-top:-6px;">What you actually got filled at — compare against the ${t.entry? '$'+t.entry+' ' : ''}planned credit above.</div>
 
           <div>
             <label style="font-size:11px;color:var(--muted);">Rolls / adjustments</label>
