@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>Trade Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0F1115;
+    --panel:#181B21;
+    --panel-2:#1F232B;
+    --line:#2A2F38;
+    --text:#E7E9ED;
+    --muted:#8B92A0;
+    --brass:#C98A3B;
+    --brass-dim:#8A6230;
+    --pass:#35B88A;
+    --warn:#E3B341;
+    --breach:#E0554F;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--text);font-family:'IBM Plex Mono',monospace;-webkit-tap-highlight-color:transparent;}
+  h1,h2,h3,.disp{font-family:'Space Grotesk',sans-serif;}
+  body{padding-bottom:76px;}
+  .app{max-width:520px;margin:0 auto;min-height:100vh;position:relative;}
+
+  header.top{position:sticky;top:0;z-index:20;background:linear-gradient(180deg,#0F1115 80%,rgba(15,17,21,0));padding:18px 16px 10px;}
+  header.top .brand{display:flex;align-items:center;justify-content:space-between;}
+  header.top .brand .mark{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:18px;letter-spacing:0.02em;}
+  header.top .brand .mark span{color:var(--brass);}
+  header.top .sub{color:var(--muted);font-size:11px;letter-spacing:.08em;text-transform:uppercase;margin-top:2px;}
+
+  .screen{padding:4px 16px 24px;}
+  .hidden{display:none !important;}
+
+  /* Gauge card */
+  .gauge-card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin-bottom:14px;}
+  .gauge-row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px;}
+  .gauge-label{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);}
+  .gauge-value{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;}
+  .gauge-track{height:10px;border-radius:6px;background:#0B0D11;border:1px solid var(--line);overflow:hidden;display:flex;}
+  .gauge-fill{height:100%;transition:width .3s ease;}
+  .seg-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+  .seg-pill{font-size:10px;padding:3px 8px;border-radius:20px;border:1px solid var(--line);color:var(--muted);}
+
+  /* Cards / sections */
+  .section{background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-bottom:12px;overflow:hidden;}
+  .section-head{padding:12px 14px;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--brass);border-bottom:1px solid var(--line);}
+  .section-body{padding:14px;display:flex;flex-direction:column;gap:12px;}
+  .field label{display:block;font-size:11px;color:var(--muted);margin-bottom:5px;letter-spacing:.03em;}
+  .field input, .field select, .field textarea{
+    width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);
+    padding:10px 11px;border-radius:7px;font-family:'IBM Plex Mono',monospace;font-size:14.5px;
+  }
+  .field textarea{resize:vertical;min-height:52px;}
+  .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--brass-dim);}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+  .helptext{font-size:10.5px;color:var(--muted);margin-top:4px;}
+  .checkline{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--text);}
+  .checkline input{width:auto;}
+
+  /* Gates */
+  .gate{border-radius:8px;padding:10px 12px;font-size:12.5px;line-height:1.4;margin-bottom:8px;border:1px solid transparent;}
+  .gate.warn{background:rgba(227,179,65,0.1);border-color:rgba(227,179,65,0.4);color:#F0CE7A;}
+  .gate.breach{background:rgba(224,85,79,0.12);border-color:rgba(224,85,79,0.45);color:#F19A96;}
+  .gate .gt-title{font-weight:600;font-family:'Space Grotesk',sans-serif;margin-bottom:2px;display:flex;gap:6px;align-items:center;}
+
+  .ack{display:flex;gap:9px;align-items:flex-start;font-size:12px;color:var(--muted);margin-top:6px;}
+  .ack input{margin-top:2px;}
+
+  .btn{display:block;width:100%;text-align:center;padding:14px;border-radius:8px;font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14.5px;letter-spacing:.02em;border:none;cursor:pointer;}
+  .btn-primary{background:var(--brass);color:#171006;}
+  .btn-primary:disabled{background:#4A3D25;color:#8A7B5C;cursor:not-allowed;}
+  .btn-ghost{background:transparent;border:1px solid var(--line);color:var(--text);}
+  .btn-small{padding:8px 12px;font-size:12px;border-radius:6px;}
+
+  /* Ticket / log cards */
+  .ticket{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:13px 14px;margin-bottom:10px;position:relative;}
+  .ticket-top{display:flex;justify-content:space-between;align-items:flex-start;}
+  .ticket-sym{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:16px;}
+  .ticket-meta{color:var(--muted);font-size:11px;margin-top:2px;}
+  .status-pill{font-size:10px;padding:3px 9px;border-radius:20px;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;}
+  .status-open{background:rgba(53,184,138,0.15);color:var(--pass);border:1px solid rgba(53,184,138,.4);}
+  .status-closed{background:rgba(139,146,160,0.15);color:var(--muted);border:1px solid var(--line);}
+  .stamp{position:absolute;top:10px;right:14px;transform:rotate(-6deg);font-family:'Space Grotesk',sans-serif;font-size:9px;font-weight:700;letter-spacing:.08em;padding:2px 7px;border:1.5px solid;border-radius:4px;opacity:.85;}
+  .stamp.cleared{color:var(--pass);border-color:var(--pass);}
+  .stamp.override{color:var(--breach);border-color:var(--breach);}
+
+  .ticket-body{margin-top:10px;border-top:1px dashed var(--line);padding-top:10px;display:flex;flex-direction:column;gap:10px;}
+  .kv{display:grid;grid-template-columns:1fr 1fr;gap:6px 12px;font-size:12px;}
+  .kv div span{display:block;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.05em;}
+
+  .roll-item{background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:12px;}
+  .roll-item .rd{color:var(--muted);font-size:10px;}
+
+  .empty{color:var(--muted);font-size:12.5px;text-align:center;padding:30px 10px;}
+
+  /* Bottom nav */
+  nav.bottom{position:fixed;bottom:0;left:0;right:0;z-index:30;background:#12141A;border-top:1px solid var(--line);}
+  nav.bottom .inner{max-width:520px;margin:0 auto;display:flex;}
+  nav.bottom button{flex:1;background:none;border:none;color:var(--muted);font-family:'Space Grotesk',sans-serif;font-size:11px;letter-spacing:.03em;padding:12px 4px 10px;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;}
+  nav.bottom button.active{color:var(--brass);}
+  nav.bottom .dot{width:5px;height:5px;border-radius:50%;background:currentColor;opacity:0;}
+  nav.bottom button.active .dot{opacity:1;}
+
+  select{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0l5 6 5-6z' fill='%238B92A0'/></svg>");background-repeat:no-repeat;background-position:right 12px center;}
+
+  .settings-toggle{font-size:11px;color:var(--muted);text-align:right;margin-bottom:8px;text-decoration:underline;cursor:pointer;}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header class="top">
+    <div class="brand">
+      <div class="mark">TRADE<span>DESK</span></div>
+      <div class="mark" id="dateNow" style="font-size:11px;color:var(--muted);font-weight:400;"></div>
+    </div>
+    <div class="sub" id="viewLabel">New Ticket</div>
+  </header>
+
+  <div class="screen">
+
+    <!-- TICKET VIEW -->
+    <div id="view-ticket">
+
+      <div class="gauge-card" id="liveGauges"></div>
+
+      <div class="section">
+        <div class="section-head">Identity</div>
+        <div class="section-body">
+          <div class="row2">
+            <div class="field"><label>Symbol</label><input id="f_symbol" placeholder="WMT" style="text-transform:uppercase"></div>
+            <div class="field"><label>Sector</label>
+              <select id="f_sector">
+                <option>Retail</option><option>Financials</option><option>Energy</option>
+                <option>Technology</option><option>Healthcare</option><option>Industrials</option>
+                <option>Consumer Staples</option><option>Consumer Discretionary</option>
+                <option>Materials</option><option>Utilities</option><option>Real Estate</option>
+                <option>Communication Services</option><option>Other</option>
+              </select>
+            </div>
+          </div>
+          <div class="field"><label>Strategy type</label>
+            <select id="f_strategy">
+              <option>IVR Mean-Reversion Spread</option>
+              <option>Wheel</option>
+              <option>PMCC Repair</option>
+              <option>Orderflow-Directional</option>
+              <option>Other</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-head">Vol Case</div>
+        <div class="section-body">
+          <div class="row2">
+            <div class="field"><label>Current IVR (%)</label><input id="f_ivr" type="number" placeholder="45"></div>
+            <div class="field"><label>Why elevated?</label>
+              <select id="f_ivrReason">
+                <option value="statistical">Statistical / mean-reversion</option>
+                <option value="earnings">Earnings-driven</option>
+                <option value="news">Other news-driven</option>
+              </select>
+            </div>
+          </div>
+          <div class="row2">
+            <div class="field"><label>Days to earnings</label><input id="f_daysEarnings" type="number" placeholder="120"></div>
+            <div class="field"><label>Days to expiration</label><input id="f_daysExp" type="number" placeholder="60"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-head">Mechanics</div>
+        <div class="section-body">
+          <div class="row2">
+            <div class="field"><label>Underlying price</label><input id="f_price" type="number" step="0.01" placeholder="102.40"></div>
+            <div class="field"><label>Option delta</label><input id="f_delta" type="number" step="0.01" placeholder="0.30"></div>
+          </div>
+          <div class="field"><label>ATM call cost, ~9mo out ($)</label><input id="f_callcost" type="number" step="0.01" placeholder="2860"></div>
+          <div class="field"><label>Position structure</label>
+            <select id="f_structure">
+              <option value="defined">Defined-risk (spread with long leg)</option>
+              <option value="naked">Naked / undefined-risk (single leg)</option>
+            </select>
+          </div>
+          <div class="row2">
+            <div class="field"><label>Option type</label>
+              <select id="f_optiontype"><option value="put">Put</option><option value="call">Call</option></select>
+            </div>
+            <div class="field"><label>Expiration date</label><input id="f_expdate" type="date"></div>
+          </div>
+          <div class="row2">
+            <div class="field" id="wrap_shortstrike"><label id="lbl_shortstrike">Short strike</label><input id="f_shortstrike" type="number" step="0.5" placeholder="120"></div>
+            <div class="field hidden" id="wrap_longstrike"><label>Long strike</label><input id="f_longstrike" type="number" step="0.5" placeholder="115"></div>
+          </div>
+          <div class="row2">
+            <div class="field"><label>Support/resistance level?</label>
+              <select id="f_haslevel"><option value="yes">Yes</option><option value="no">No clear level</option></select>
+            </div>
+            <div class="field"><label>Level price</label><input id="f_levelprice" type="number" step="0.01" placeholder="—"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-head">Thesis &amp; Plan</div>
+        <div class="section-body">
+          <div class="field"><label>One-sentence thesis</label><textarea id="f_thesis" placeholder="IVR is in the 80th percentile with no earnings in the window; selling premium expecting IV compression."></textarea></div>
+          <div class="row3">
+            <div class="field"><label>Credit / premium collected ($)</label><input id="f_entry" type="number" step="0.01" placeholder="185"></div>
+            <div class="field"><label>Profit target (% of premium)</label><input id="f_target" type="number" step="1" placeholder="100"></div>
+            <div class="field"><label>Adj./roll trigger (price)</label><input id="f_stop" type="number" step="0.01"></div>
+          </div>
+          <div class="helptext" id="targetHint">Default: 100% for weekly/biweekly wheel trades, 50% for ~45-day spreads — edit as needed.</div>
+          <div class="field"><label>Position size (% of account risked)</label><input id="f_size" type="number" step="0.1" placeholder="2.5"></div>
+        </div>
+      </div>
+
+      <div id="gatesBox"></div>
+
+      <button class="btn btn-primary" id="submitTicket">Log Ticket</button>
+    </div>
+
+    <!-- LOG VIEW -->
+    <div id="view-log" class="hidden">
+      <div id="logList"></div>
+    </div>
+
+    <!-- DASHBOARD VIEW -->
+    <div id="view-dash" class="hidden">
+      <div class="section-head" style="border:none;padding-left:0;">Leverage Budget</div>
+      <div class="gauge-card" id="dashLeverage" style="margin-top:6px;"></div>
+      <div class="section-head" style="border:none;padding-left:0;">Sector Exposure</div>
+      <div class="gauge-card" id="dashSector" style="margin-top:6px;"></div>
+
+      <div class="section" style="margin-top:16px;">
+        <div class="section-head">Settings</div>
+        <div class="section-body">
+          <div class="row2">
+            <div class="field"><label>Account cash ($)</label><input id="s_cash" type="number"></div>
+            <div class="field"><label>Leverage cap (%)</label><input id="s_cap" type="number"></div>
+          </div>
+          <div class="field"><label>Sector concentration warn threshold (%)</label><input id="s_sector" type="number"></div>
+          <div class="field"><label>Low IVR threshold (%)</label><input id="s_ivr" type="number"></div>
+          <button class="btn btn-ghost" id="saveSettings">Save Settings</button>
+          <div style="border-top:1px dashed var(--line);margin-top:6px;padding-top:12px;">
+            <label style="display:block;font-size:11px;color:var(--muted);margin-bottom:8px;">Manual backup — your data lives in this browser only. Export before switching devices or clearing browser data.</label>
+            <div class="row2">
+              <button class="btn btn-ghost btn-small" id="exportData">Export data (.json)</button>
+              <button class="btn btn-ghost btn-small" id="importTrigger">Import data (.json)</button>
+            </div>
+            <input type="file" id="importFile" accept="application/json" class="hidden">
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <nav class="bottom">
+    <div class="inner">
+      <button class="navbtn active" data-view="ticket"><span class="dot"></span>New Ticket</button>
+      <button class="navbtn" data-view="log"><span class="dot"></span>Log Book</button>
+      <button class="navbtn" data-view="dash"><span class="dot"></span>Dashboard</button>
+    </div>
+  </nav>
+</div>
+
+<script>
+(function(){
+
+  let trades = [];
+  let settings = { cash: 10000, capPct: 125, sectorWarnPct: 40, lowIvrPct: 30 };
+
+  const $ = id => document.getElementById(id);
+
+  async function loadData(){
+    try{
+      const t = localStorage.getItem('td_trades');
+      trades = t ? JSON.parse(t) : [];
+    }catch(e){ trades = []; }
+    try{
+      const s = localStorage.getItem('td_settings');
+      if(s) settings = JSON.parse(s);
+    }catch(e){ /* use defaults */ }
+    renderAll();
+  }
+  async function saveTrades(){
+    try{
+      localStorage.setItem('td_trades', JSON.stringify(trades));
+    }catch(e){
+      console.error('save failed', e);
+      alert('Save failed: '+(e && e.message ? e.message : 'unknown error')+'. Your last change may not have persisted.');
+    }
+  }
+  async function saveSettingsToStore(){
+    try{
+      localStorage.setItem('td_settings', JSON.stringify(settings));
+    }catch(e){
+      console.error('save failed', e);
+      alert('Save failed: '+(e && e.message ? e.message : 'unknown error'));
+    }
+  }
+
+  function openTrades(){ return trades.filter(t=>t.status==='open'); }
+
+  function leverageUsed(excludeId){
+    return openTrades().filter(t=>t.id!==excludeId).reduce((sum,t)=> sum + (Number(t.callcost)||0), 0);
+  }
+
+  function sectorCounts(excludeId){
+    const counts = {};
+    openTrades().filter(t=>t.id!==excludeId).forEach(t=>{
+      counts[t.sector] = (counts[t.sector]||0)+1;
+    });
+    return counts;
+  }
+
+  function fmtMoney(n){ return '$' + (Math.round(n*100)/100).toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:0}); }
+  function fmtPct(n){ return (Math.round(n*10)/10) + '%'; }
+
+  function gaugeHTML(label, usedPct, valueText, color){
+    usedPct = Math.max(0, Math.min(100, usedPct));
+    return `<div class="gauge-row"><span class="gauge-label">${label}</span><span class="gauge-value">${valueText}</span></div>
+    <div class="gauge-track"><div class="gauge-fill" style="width:${usedPct}%;background:${color};"></div></div>`;
+  }
+
+  function computeLeverage(newCost, excludeId){
+    const budget = settings.cash * settings.capPct/100;
+    const used = leverageUsed(excludeId);
+    const projected = used + (Number(newCost)||0);
+    const remaining = budget - projected;
+    const usedPct = budget>0 ? (projected/budget*100) : 0;
+    return {budget, used, projected, remaining, usedPct};
+  }
+
+  function renderLiveGauges(){
+    const cost = Number($('f_callcost').value)||0;
+    const sector = $('f_sector').value;
+    const lev = computeLeverage(cost, null);
+    const color = lev.usedPct>100 ? 'var(--breach)' : (lev.usedPct>85 ? 'var(--warn)' : 'var(--pass)');
+    let html = gaugeHTML('Leverage budget (incl. this ticket)', lev.usedPct, fmtMoney(Math.max(lev.remaining,0))+' left · '+fmtPct(lev.usedPct), color);
+
+    const counts = sectorCounts(null);
+    counts[sector] = (counts[sector]||0)+1;
+    const total = Object.values(counts).reduce((a,b)=>a+b,0);
+    const thisPct = total>0 ? (counts[sector]/total*100) : 0;
+    const scolor = (total>=3 && thisPct>settings.sectorWarnPct) ? 'var(--warn)' : 'var(--pass)';
+    html += `<div style="margin-top:14px;">`+gaugeHTML(sector+' exposure (incl. this ticket)', thisPct, counts[sector]+' of '+total+' open · '+fmtPct(thisPct), scolor)+`</div>`;
+    $('liveGauges').innerHTML = html;
+  }
+
+  function evaluateGates(){
+    const gates = [];
+    const ivr = Number($('f_ivr').value)||0;
+    const ivrReason = $('f_ivrReason').value;
+    const daysE = Number($('f_daysEarnings').value);
+    const daysX = Number($('f_daysExp').value);
+    const structure = $('f_structure').value;
+    const strategy = $('f_strategy').value;
+    const haslevel = $('f_haslevel').value;
+    const delta = Number($('f_delta').value);
+    const cost = Number($('f_callcost').value)||0;
+    const sector = $('f_sector').value;
+
+    // Gate 1: low IVR + earnings inside window
+    const earningsInWindow = (!isNaN(daysE) && !isNaN(daysX) && $('f_daysEarnings').value!=='' && $('f_daysExp').value!=='' && daysE <= daysX);
+    if(earningsInWindow && (ivr < settings.lowIvrPct || ivrReason==='earnings')){
+      gates.push({level:'breach', title:'Event-driven vol + earnings in window', msg:`IVR is ${ivr||'—'}% and earnings fall inside your expiration window. This is the compounded-risk setup: event-priced IV with no mean-reversion cushion.`});
+    }
+
+    // Gate 2: sector concentration (only meaningful once there's an actual portfolio to be concentra
