@@ -376,4 +376,330 @@
       gates.push({level:'breach', title:'Event-driven vol + earnings in window', msg:`IVR is ${ivr||'—'}% and earnings fall inside your expiration window. This is the compounded-risk setup: event-priced IV with no mean-reversion cushion.`});
     }
 
-    // Gate 2: sector concentration (only meaningful once there's an actual portfolio to be concentra
+    // Gate 2: sector concentration (only meaningful once there's an actual portfolio to be concentrated within)
+    const counts = sectorCounts(null);
+    counts[sector] = (counts[sector]||0)+1;
+    const total = Object.values(counts).reduce((a,b)=>a+b,0);
+    const pct = total>0 ? (counts[sector]/total*100) : 0;
+    if(total >= 3 && pct > settings.sectorWarnPct){
+      gates.push({level:'warn', title:'Sector concentration', msg:`This trade brings ${sector} to ${counts[sector]} of ${total} open positions (${fmtPct(pct)}), above your ${settings.sectorWarnPct}% threshold.`});
+    }
+
+    // Gate 3: naked roll on a strategy that should be defined-risk
+    if(structure==='naked' && (strategy==='IVR Mean-Reversion Spread' || strategy==='Orderflow-Directional')){
+      gates.push({level:'breach', title:'Undefined-risk position', msg:`This ${strategy} trade has lost its long-leg protection. This is the exact moment a defined-risk spread turns into open-ended exposure.`});
+    }
+
+    // Gate 4: no support/resistance on directional trades
+    if(haslevel==='no' && strategy==='Orderflow-Directional'){
+      gates.push({level:'warn', title:'No technical level identified', msg:`No support/resistance level marked. Without one, there's no objective invalidation point for this thesis.`});
+    }
+
+    // Gate 5: deep ITM delta on PMCC short call
+    if(strategy==='PMCC Repair' && !isNaN(delta) && $('f_delta').value!=='' && delta >= 0.70){
+      gates.push({level:'warn', title:'Deep ITM short call', msg:`Delta ${delta} is deep ITM. Minimal extrinsic value means little theta harvested — this behaves like a hedge, not an income trade.`});
+    }
+
+    // Gate 6: leverage budget
+    const lev = computeLeverage(cost, null);
+    if(lev.usedPct > 100){
+      gates.push({level:'breach', title:'Leverage budget exceeded', msg:`This trade pushes cumulative usage to ${fmtPct(lev.usedPct)} of your ${fmtMoney(lev.budget)} budget — ${fmtMoney(lev.projected-lev.budget)} over.`});
+    }
+
+    return gates;
+  }
+
+  function renderGates(){
+    const gates = evaluateGates();
+    const box = $('gatesBox');
+    if(gates.length===0){ box.innerHTML=''; $('submitTicket').disabled=false; return; }
+    let html = '';
+    gates.forEach(g=>{
+      html += `<div class="gate ${g.level}"><div class="gt-title">${g.level==='breach'?'⛔':'⚠'} ${g.title}</div>${g.msg}</div>`;
+    });
+    html += `<label class="ack"><input type="checkbox" id="ackBox"> I see the flag(s) above and am proceeding with this trade anyway.</label>`;
+    box.innerHTML = html;
+    $('submitTicket').disabled = true;
+    $('ackBox').addEventListener('change', e=>{ $('submitTicket').disabled = !e.target.checked; });
+  }
+
+  function refreshTicketForm(){ renderLiveGauges(); renderGates(); }
+
+  ['f_symbol','f_sector','f_strategy','f_ivr','f_ivrReason','f_daysEarnings','f_daysExp',
+   'f_price','f_delta','f_callcost','f_structure','f_optiontype','f_expdate','f_shortstrike','f_longstrike',
+   'f_haslevel','f_levelprice',
+   'f_thesis','f_entry','f_stop','f_target','f_size'].forEach(id=>{
+    $(id).addEventListener('input', refreshTicketForm);
+    $(id).addEventListener('change', refreshTicketForm);
+  });
+
+  function toggleLongStrike(){
+    const isSpread = $('f_structure').value === 'defined';
+    $('wrap_longstrike').classList.toggle('hidden', !isSpread);
+    $('lbl_shortstrike').textContent = isSpread ? 'Short strike' : 'Strike (sold)';
+  }
+  $('f_structure').addEventListener('change', toggleLongStrike);
+  toggleLongStrike();
+
+  let targetTouched = false;
+  $('f_target').addEventListener('input', ()=>{ targetTouched = true; });
+  $('f_daysExp').addEventListener('input', ()=>{
+    if(targetTouched) return;
+    const d = Number($('f_daysExp').value);
+    if(!d) return;
+    if(d <= 17){ $('f_target').value = 100; $('targetHint').textContent = 'Weekly/biweekly wheel range detected — defaulted to 100% of premium.'; }
+    else if(d >= 30 && d <= 60){ $('f_target').value = 50; $('targetHint').textContent = '~45-day spread range detected — defaulted to 50% of premium.'; }
+    else { $('targetHint').textContent = 'Default: 100% for weekly/biweekly wheel trades, 50% for ~45-day spreads — edit as needed.'; }
+  });
+
+  $('submitTicket').addEventListener('click', async ()=>{
+    if($('submitTicket').disabled) return;
+    const symbol = $('f_symbol').value.trim().toUpperCase();
+    if(!symbol){ alert('Symbol is required.'); return; }
+    const gates = evaluateGates();
+    const trade = {
+      id: 'T'+Date.now(),
+      symbol, sector: $('f_sector').value, strategy: $('f_strategy').value,
+      ivr: $('f_ivr').value, ivrReason: $('f_ivrReason').value,
+      daysEarnings: $('f_daysEarnings').value, daysExp: $('f_daysExp').value,
+      price: $('f_price').value, delta: $('f_delta').value, callcost: $('f_callcost').value,
+      structure: $('f_structure').value,
+      optiontype: $('f_optiontype').value, expdate: $('f_expdate').value,
+      shortstrike: $('f_shortstrike').value, longstrike: $('f_structure').value==='defined' ? $('f_longstrike').value : '',
+      haslevel: $('f_haslevel').value, levelprice: $('f_levelprice').value,
+      thesis: $('f_thesis').value, entry: $('f_entry').value, stop: $('f_stop').value, target: $('f_target').value,
+      size: $('f_size').value,
+      gatesAtEntry: gates,
+      status: 'open',
+      dateOpened: new Date().toISOString(),
+      rolls: [], deviationFlag:false, deviationNote:'', actualEntry:'', outcome:'', rMultiple:'', matched:'', closedDate:''
+    };
+    trades.unshift(trade);
+    await saveTrades();
+    // reset form
+    document.querySelectorAll('#view-ticket input, #view-ticket textarea').forEach(el=>el.value='');
+    $('f_ivrReason').value='statistical'; $('f_structure').value='defined'; $('f_haslevel').value='yes'; $('f_optiontype').value='put';
+    toggleLongStrike();
+    targetTouched = false;
+    $('targetHint').textContent = 'Default: 100% for weekly/biweekly wheel trades, 50% for ~45-day spreads — edit as needed.';
+    refreshTicketForm();
+    setView('log');
+  });
+
+  // LOG VIEW
+  function renderLog(){
+    const list = $('logList');
+    if(trades.length===0){ list.innerHTML = '<div class="empty">No tickets logged yet. Start one from New Ticket.</div>'; return; }
+    list.innerHTML = trades.map(t=>{
+      const stampClass = t.gatesAtEntry && t.gatesAtEntry.length>0 ? 'override' : 'cleared';
+      const stampText = t.gatesAtEntry && t.gatesAtEntry.length>0 ? 'OVERRIDE' : 'CLEARED';
+      return `<div class="ticket" data-id="${t.id}">
+        <div class="stamp ${stampClass}">${stampText}</div>
+        <div class="ticket-top">
+          <div>
+            <div class="ticket-sym">${t.symbol}</div>
+            <div class="ticket-meta">${t.strategy} · ${t.sector}</div>
+          </div>
+          <span class="status-pill ${t.status==='open'?'status-open':'status-closed'}">${t.status}</span>
+        </div>
+        <div class="ticket-body hidden" id="body-${t.id}">
+          <div class="kv">
+            <div><span>Thesis</span>${t.thesis||'—'}</div>
+            <div><span>IVR</span>${t.ivr||'—'}%</div>
+            <div><span>${t.longstrike ? 'Short / Long strike' : 'Strike'}</span>${t.shortstrike||'—'}${t.longstrike ? ' / '+t.longstrike : ''} ${t.optiontype?('('+t.optiontype.toUpperCase()+')'):''}</div>
+            <div><span>Expiration</span>${t.expdate||'—'}</div>
+            <div><span>Premium collected</span>${t.entry? '$'+t.entry : '—'}</div>
+            <div><span>Profit target</span>${t.target? t.target+'% of premium' : '—'}</div>
+            <div><span>Adj./roll trigger</span>${t.stop||'—'}</div>
+            <div><span>Call cost (9mo)</span>${t.callcost? '$'+t.callcost : '—'}</div>
+          </div>
+          ${t.gatesAtEntry && t.gatesAtEntry.length ? t.gatesAtEntry.map(g=>`<div class="gate ${g.level}"><div class="gt-title">${g.level==='breach'?'⛔':'⚠'} ${g.title}</div>${g.msg}</div>`).join('') : ''}
+
+          <div class="field"><label>Actual entry</label><input type="number" step="0.01" value="${t.actualEntry||''}" data-f="actualEntry"></div>
+
+          <div>
+            <label style="font-size:11px;color:var(--muted);">Rolls / adjustments</label>
+            <div id="rolls-${t.id}" style="display:flex;flex-direction:column;gap:6px;margin-top:6px;">
+              ${(t.rolls||[]).map(r=>`<div class="roll-item"><div class="rd">${new Date(r.date).toLocaleDateString()}</div>${r.note}</div>`).join('')}
+            </div>
+            <div class="row2" style="margin-top:8px;">
+              <input type="text" placeholder="Roll note / why" id="rollnote-${t.id}" style="grid-column:span 2;background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
+            </div>
+            <button class="btn btn-ghost btn-small" style="margin-top:6px;" data-addroll="${t.id}">+ Add roll</button>
+          </div>
+
+          <label class="checkline"><input type="checkbox" data-f="deviationFlag" ${t.deviationFlag?'checked':''}> Deviated from pre-trade plan</label>
+          <div class="field"><label>Deviation note (which step, and why)</label><textarea data-f="deviationNote">${t.deviationNote||''}</textarea></div>
+
+          <div class="row2">
+            <div class="field"><label>Status</label>
+              <select data-f="status"><option value="open" ${t.status==='open'?'selected':''}>Open</option><option value="closed" ${t.status==='closed'?'selected':''}>Closed</option></select>
+            </div>
+            <div class="field"><label>Matched framework?</label>
+              <select data-f="matched"><option value="">—</option><option value="yes" ${t.matched==='yes'?'selected':''}>Yes</option><option value="no" ${t.matched==='no'?'selected':''}>No</option></select>
+            </div>
+          </div>
+          <div class="row2">
+            <div class="field"><label>Outcome ($)</label><input type="number" step="0.01" value="${t.outcome||''}" data-f="outcome"></div>
+            <div class="field"><label>R-multiple</label><input type="number" step="0.01" value="${t.rMultiple||''}" data-f="rMultiple"></div>
+          </div>
+
+          <button class="btn btn-primary btn-small" data-save="${t.id}">Save</button>
+          <button class="btn btn-ghost btn-small" data-delete="${t.id}" style="color:var(--breach);border-color:rgba(224,85,79,.4);">Delete ticket</button>
+        </div>
+      </div>`;
+    }).join('');
+
+    list.querySelectorAll('.ticket-top').forEach(el=>{
+      el.addEventListener('click', ()=>{
+        const id = el.closest('.ticket').dataset.id;
+        const body = $('body-'+id);
+        body.classList.toggle('hidden');
+      });
+    });
+    list.querySelectorAll('[data-addroll]').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const id = btn.dataset.addroll;
+        const noteEl = $('rollnote-'+id);
+        if(!noteEl.value.trim()) return;
+        const trade = trades.find(t=>t.id===id);
+        trade.rolls = trade.rolls||[];
+        trade.rolls.push({date: new Date().toISOString(), note: noteEl.value.trim()});
+        await saveTrades();
+        renderLog();
+        setTimeout(()=>{ $('body-'+id).classList.remove('hidden'); }, 0);
+      });
+    });
+    list.querySelectorAll('[data-save]').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        const id = btn.dataset.save;
+        const trade = trades.find(t=>t.id===id);
+        const body = $('body-'+id);
+        body.querySelectorAll('[data-f]').forEach(el=>{
+          const key = el.dataset.f;
+          if(el.type==='checkbox') trade[key] = el.checked;
+          else trade[key] = el.value;
+        });
+        if(trade.status==='closed' && !trade.closedDate) trade.closedDate = new Date().toISOString();
+        await saveTrades();
+        renderAll();
+      });
+    });
+    list.querySelectorAll('[data-delete]').forEach(btn=>{
+      btn.addEventListener('click', async ()=>{
+        if(!confirm('Delete this ticket permanently?')) return;
+        trades = trades.filter(t=>t.id!==btn.dataset.delete);
+        await saveTrades();
+        renderAll();
+      });
+    });
+  }
+
+  // DASHBOARD
+  function renderDash(){
+    const lev = computeLeverage(0, null);
+    const color = lev.usedPct>100?'var(--breach)':(lev.usedPct>85?'var(--warn)':'var(--pass)');
+    $('dashLeverage').innerHTML = gaugeHTML('Budget: '+fmtMoney(lev.budget)+' ('+settings.capPct+'% of '+fmtMoney(settings.cash)+')', lev.usedPct, fmtMoney(lev.used)+' used · '+fmtMoney(Math.max(lev.remaining,0))+' left', color);
+
+    const counts = sectorCounts(null);
+    const total = Object.values(counts).reduce((a,b)=>a+b,0);
+    if(total===0){
+      $('dashSector').innerHTML = '<div class="empty" style="padding:10px 0;">No open positions.</div>';
+    } else {
+      let html = '';
+      const colors = ['#C98A3B','#35B88A','#4C7EF3','#E3B341','#E0554F','#8B92A0','#7ED4C7'];
+      let i=0;
+      html += `<div class="gauge-track" style="height:14px;">`;
+      Object.entries(counts).forEach(([sec,c])=>{
+        html += `<div class="gauge-fill" style="width:${c/total*100}%;background:${colors[i%colors.length]};"></div>`;
+        i++;
+      });
+      html += `</div><div class="seg-list">`;
+      i=0;
+      Object.entries(counts).forEach(([sec,c])=>{
+        html += `<div class="seg-pill" style="border-color:${colors[i%colors.length]};color:${colors[i%colors.length]};">${sec} ${fmtPct(c/total*100)}</div>`;
+        i++;
+      });
+      html += `</div>`;
+      $('dashSector').innerHTML = html;
+    }
+
+    $('s_cash').value = settings.cash;
+    $('s_cap').value = settings.capPct;
+    $('s_sector').value = settings.sectorWarnPct;
+    $('s_ivr').value = settings.lowIvrPct;
+  }
+
+  $('saveSettings').addEventListener('click', async ()=>{
+    settings.cash = Number($('s_cash').value)||settings.cash;
+    settings.capPct = Number($('s_cap').value)||settings.capPct;
+    settings.sectorWarnPct = Number($('s_sector').value)||settings.sectorWarnPct;
+    settings.lowIvrPct = Number($('s_ivr').value)||settings.lowIvrPct;
+    await saveSettingsToStore();
+    renderAll();
+    $('saveSettings').textContent = 'Saved ✓';
+    setTimeout(()=>{ $('saveSettings').textContent='Save Settings'; }, 1200);
+  });
+
+  $('exportData').addEventListener('click', ()=>{
+    const blob = new Blob([JSON.stringify({trades, settings}, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'trade-desk-backup-'+new Date().toISOString().slice(0,10)+'.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+  $('importTrigger').addEventListener('click', ()=>{ $('importFile').click(); });
+  $('importFile').addEventListener('change', (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = async (ev)=>{
+      try{
+        const data = JSON.parse(ev.target.result);
+        if(!data.trades || !data.settings) throw new Error('File missing expected trades/settings data.');
+        if(!confirm('This will replace your current '+trades.length+' ticket(s) with '+data.trades.length+' from the backup file. Continue?')) return;
+        trades = data.trades;
+        settings = data.settings;
+        await saveTrades();
+        await saveSettingsToStore();
+        renderAll();
+        alert('Import complete.');
+      }catch(err){
+        alert('Import failed: '+err.message);
+      }
+      $('importFile').value = '';
+    };
+    reader.readAsText(file);
+  });
+
+  function renderAll(){
+    refreshTicketForm();
+    renderLog();
+    renderDash();
+  }
+
+  // NAV
+  function setView(v){
+    ['ticket','log','dash'].forEach(name=>{
+      $('view-'+name).classList.toggle('hidden', name!==v);
+    });
+    document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('active', b.dataset.view===v));
+    $('viewLabel').textContent = v==='ticket' ? 'New Ticket' : (v==='log' ? 'Log Book' : 'Dashboard');
+    if(v==='log') renderLog();
+    if(v==='dash') renderDash();
+  }
+  document.querySelectorAll('.navbtn').forEach(b=>{
+    b.addEventListener('click', ()=>setView(b.dataset.view));
+  });
+
+  $('dateNow').textContent = new Date().toLocaleDateString(undefined,{month:'short',day:'numeric',year:'numeric'});
+
+  loadData();
+})();
+</script>
+</body>
+</html>
