@@ -524,18 +524,62 @@
           <span class="status-pill ${t.status==='open'?'status-open':'status-closed'}">${t.status}</span>
         </div>
         <div class="ticket-body hidden" id="body-${t.id}">
-          <div class="kv">
-            <div><span>Thesis</span>${t.thesis||'—'}</div>
-            <div><span>Contracts</span>${t.contracts||1}</div>
-            <div><span>IVR</span>${t.ivr||'—'}%</div>
-            <div><span>${t.longstrike ? 'Short / Long strike' : 'Strike'}</span>${t.shortstrike||'—'}${t.longstrike ? ' / '+t.longstrike : ''} ${t.optiontype?('('+t.optiontype.toUpperCase()+')'):''}</div>
-            <div><span>Expiration</span>${t.expdate||'—'}</div>
-            <div><span>Premium collected</span>${t.entry? '$'+t.entry : '—'}</div>
-            <div><span>Profit target</span>${t.target? t.target+'% of premium' : '—'}</div>
-            <div><span>Adj./roll trigger</span>${t.stop||'—'}</div>
-            <div><span>Call cost (9mo)</span>${t.callcost? '$'+t.callcost : '—'}</div>
+          <div class="row2">
+            <div class="field"><label>Symbol</label><input type="text" value="${t.symbol||''}" data-f="symbol" style="text-transform:uppercase"></div>
+            <div class="field"><label>Contracts</label><input type="number" min="1" step="1" value="${t.contracts||1}" data-f="contracts"></div>
           </div>
-          ${t.gatesAtEntry && t.gatesAtEntry.length ? t.gatesAtEntry.map(g=>`<div class="gate ${g.level}"><div class="gt-title">${g.level==='breach'?'⛔':'⚠'} ${g.title}</div>${g.msg}</div>`).join('') : ''}
+          <div class="row2">
+            <div class="field"><label>Sector</label>
+              <select data-f="sector">
+                ${['Retail','Financials','Energy','Technology','Healthcare','Industrials','Consumer Staples','Consumer Discretionary','Materials','Utilities','Real Estate','Communication Services','Other'].map(s=>`<option ${t.sector===s?'selected':''}>${s}</option>`).join('')}
+              </select>
+            </div>
+            <div class="field"><label>Strategy</label>
+              <select data-f="strategy">
+                ${['IVR Mean-Reversion Spread','Wheel','PMCC Repair','Orderflow-Directional','Other'].map(s=>`<option ${t.strategy===s?'selected':''}>${s}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+          <div class="field"><label>Thesis</label><textarea data-f="thesis">${t.thesis||''}</textarea></div>
+          <div class="row2">
+            <div class="field"><label>IVR (%)</label><input type="number" value="${t.ivr||''}" data-f="ivr"></div>
+            <div class="field"><label>Underlying price</label><input type="number" step="0.01" value="${t.price||''}" data-f="price"></div>
+          </div>
+          <div class="row2">
+            <div class="field"><label>Days to earnings</label><input type="number" value="${t.daysEarnings||''}" data-f="daysEarnings"></div>
+            <div class="field"><label>Days to expiration</label><input type="number" value="${t.daysExp||''}" data-f="daysExp"></div>
+          </div>
+          <div class="row2">
+            <div class="field"><label>Option type</label>
+              <select data-f="optiontype"><option value="put" ${t.optiontype==='put'?'selected':''}>Put</option><option value="call" ${t.optiontype==='call'?'selected':''}>Call</option></select>
+            </div>
+            <div class="field"><label>Expiration date</label><input type="date" value="${t.expdate||''}" data-f="expdate"></div>
+          </div>
+          <div class="row2">
+            <div class="field"><label>Structure</label>
+              <select data-f="structure"><option value="defined" ${t.structure==='defined'?'selected':''}>Defined-risk (spread)</option><option value="naked" ${t.structure==='naked'?'selected':''}>Naked</option></select>
+            </div>
+            <div class="field"><label>Delta</label><input type="number" step="0.01" value="${t.delta||''}" data-f="delta"></div>
+          </div>
+          <div class="row2">
+            <div class="field"><label>Short strike</label><input type="number" step="0.5" value="${t.shortstrike||''}" data-f="shortstrike"></div>
+            <div class="field"><label>Long strike</label><input type="number" step="0.5" value="${t.longstrike||''}" data-f="longstrike"></div>
+          </div>
+          <div class="field"><label>ATM call cost, ~9mo ($)</label><input type="number" step="0.01" value="${t.callcost||''}" data-f="callcost"></div>
+          <div class="row2">
+            <div class="field"><label>Support/resistance?</label>
+              <select data-f="haslevel"><option value="yes" ${t.haslevel==='yes'?'selected':''}>Yes</option><option value="no" ${t.haslevel==='no'?'selected':''}>No</option></select>
+            </div>
+            <div class="field"><label>Level price</label><input type="number" step="0.01" value="${t.levelprice||''}" data-f="levelprice"></div>
+          </div>
+          <div class="row3">
+            <div class="field"><label>Premium collected ($)</label><input type="number" step="0.01" value="${t.entry||''}" data-f="entry"></div>
+            <div class="field"><label>Profit target (%)</label><input type="number" value="${t.target||''}" data-f="target"></div>
+            <div class="field"><label>Adj./roll trigger</label><input type="number" step="0.01" value="${t.stop||''}" data-f="stop"></div>
+          </div>
+          <div class="field"><label>Position size (% risk)</label><input type="number" step="0.1" value="${t.size||''}" data-f="size"></div>
+
+          ${t.gatesAtEntry && t.gatesAtEntry.length ? t.gatesAtEntry.map(g=>`<div class="gate ${g.level}"><div class="gt-title">${g.level==='breach'?'⛔':'⚠'} ${g.title} <span style="font-weight:400;opacity:.7;">(at entry)</span></div>${g.msg}</div>`).join('') : ''}
 
           <div class="field"><label>Actual premium collected ($)</label><input type="number" step="0.01" value="${t.actualEntry||''}" data-f="actualEntry"></div>
           <div class="helptext" style="margin-top:-6px;">What you actually got filled at — compare against the ${t.entry? '$'+t.entry+' ' : ''}planned credit above.</div>
