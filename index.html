@@ -85,6 +85,13 @@
   .status-pill{font-size:10px;padding:3px 9px;border-radius:20px;letter-spacing:.05em;text-transform:uppercase;white-space:nowrap;}
   .status-open{background:rgba(53,184,138,0.15);color:var(--pass);border:1px solid rgba(53,184,138,.4);}
   .status-closed{background:rgba(139,146,160,0.15);color:var(--muted);border:1px solid var(--line);}
+  .kebab-wrap{position:relative;}
+  .kebab-btn{background:none;border:none;color:var(--muted);font-size:19px;padding:2px 8px;cursor:pointer;line-height:1;letter-spacing:2px;}
+  .kebab-menu{position:absolute;top:26px;right:0;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;overflow:hidden;z-index:15;min-width:160px;box-shadow:0 6px 18px rgba(0,0,0,.45);}
+  .kebab-menu button{display:block;width:100%;text-align:left;background:none;border:none;color:var(--text);padding:11px 13px;font-size:12.5px;font-family:'IBM Plex Mono',monospace;cursor:pointer;}
+  .kebab-menu button:active{background:rgba(255,255,255,.06);}
+  .kebab-menu button.danger{color:var(--breach);}
+  .kebab-menu .divider{border-top:1px solid var(--line);}
   .stamp{display:inline-block;margin-left:8px;transform:rotate(-3deg);font-family:'Space Grotesk',sans-serif;font-size:9px;font-weight:700;letter-spacing:.08em;padding:2px 7px;border:1.5px solid;border-radius:4px;opacity:.85;vertical-align:middle;}
   .stamp.cleared{color:var(--pass);border-color:var(--pass);}
   .stamp.override{color:var(--breach);border-color:var(--breach);}
@@ -509,21 +516,33 @@
   });
 
   // LOG VIEW
+  let expandedIds = new Set();
+  let editModeIds = new Set();
+  let openMenuId = null;
+
   function renderLog(){
     const list = $('logList');
     if(trades.length===0){ list.innerHTML = '<div class="empty">No tickets logged yet. Start one from New Ticket.</div>'; return; }
     list.innerHTML = trades.map(t=>{
       const stampClass = t.gatesAtEntry && t.gatesAtEntry.length>0 ? 'override' : 'cleared';
       const stampText = t.gatesAtEntry && t.gatesAtEntry.length>0 ? 'OVERRIDE' : 'CLEARED';
-      return `<div class="ticket" data-id="${t.id}">
-        <div class="ticket-top">
-          <div>
-            <div class="ticket-sym">${t.symbol}<span class="stamp ${stampClass}">${stampText}</span></div>
-            <div class="ticket-meta">${t.contracts&&t.contracts>1? t.contracts+'x · ':''}${t.strategy} · ${t.sector}</div>
-          </div>
-          <span class="status-pill ${t.status==='open'?'status-open':'status-closed'}">${t.status}</span>
-        </div>
-        <div class="ticket-body hidden" id="body-${t.id}">
+      const isOpen = expandedIds.has(t.id);
+      const isEdit = editModeIds.has(t.id);
+
+      const summaryHTML = `
+          <div class="kv">
+            <div><span>Thesis</span>${t.thesis||'—'}</div>
+            <div><span>Contracts</span>${t.contracts||1}</div>
+            <div><span>IVR</span>${t.ivr||'—'}%</div>
+            <div><span>${t.longstrike ? 'Short / Long strike' : 'Strike'}</span>${t.shortstrike||'—'}${t.longstrike ? ' / '+t.longstrike : ''} ${t.optiontype?('('+t.optiontype.toUpperCase()+')'):''}</div>
+            <div><span>Expiration</span>${t.expdate||'—'}</div>
+            <div><span>Premium collected</span>${t.entry? '$'+t.entry : '—'}</div>
+            <div><span>Profit target</span>${t.target? t.target+'% of premium' : '—'}</div>
+            <div><span>Adj./roll trigger</span>${t.stop||'—'}</div>
+            <div><span>Call cost (9mo)</span>${t.callcost? '$'+t.callcost : '—'}</div>
+          </div>`;
+
+      const editHTML = `
           <div class="row2">
             <div class="field"><label>Symbol</label><input type="text" value="${t.symbol||''}" data-f="symbol" style="text-transform:uppercase"></div>
             <div class="field"><label>Contracts</label><input type="number" min="1" step="1" value="${t.contracts||1}" data-f="contracts"></div>
@@ -577,7 +596,27 @@
             <div class="field"><label>Profit target (%)</label><input type="number" value="${t.target||''}" data-f="target"></div>
             <div class="field"><label>Adj./roll trigger</label><input type="number" step="0.01" value="${t.stop||''}" data-f="stop"></div>
           </div>
-          <div class="field"><label>Position size (% risk)</label><input type="number" step="0.1" value="${t.size||''}" data-f="size"></div>
+          <div class="field"><label>Position size (% risk)</label><input type="number" step="0.1" value="${t.size||''}" data-f="size"></div>`;
+
+      return `<div class="ticket" data-id="${t.id}">
+        <div class="ticket-top">
+          <div class="ticket-top-click" data-toggle="${t.id}" style="cursor:pointer;">
+            <div class="ticket-sym">${t.symbol}<span class="stamp ${stampClass}">${stampText}</span></div>
+            <div class="ticket-meta">${t.contracts&&t.contracts>1? t.contracts+'x · ':''}${t.strategy} · ${t.sector}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <span class="status-pill ${t.status==='open'?'status-open':'status-closed'}">${t.status}</span>
+            <div class="kebab-wrap">
+              <button class="kebab-btn" data-kebab="${t.id}">⋮</button>
+              ${openMenuId===t.id ? `<div class="kebab-menu">
+                <button data-editbtn="${t.id}">${isEdit ? 'View summary' : 'Edit trade details'}</button>
+                <button class="danger divider" data-delete="${t.id}">Delete ticket</button>
+              </div>` : ''}
+            </div>
+          </div>
+        </div>
+        <div class="ticket-body ${isOpen?'':'hidden'}" id="body-${t.id}">
+          ${isEdit ? editHTML : summaryHTML}
 
           ${t.gatesAtEntry && t.gatesAtEntry.length ? t.gatesAtEntry.map(g=>`<div class="gate ${g.level}"><div class="gt-title">${g.level==='breach'?'⛔':'⚠'} ${g.title} <span style="font-weight:400;opacity:.7;">(at entry)</span></div>${g.msg}</div>`).join('') : ''}
 
@@ -612,20 +651,38 @@
           </div>
 
           <button class="btn btn-primary btn-small" data-save="${t.id}">Save</button>
-          <button class="btn btn-ghost btn-small" data-delete="${t.id}" style="color:var(--breach);border-color:rgba(224,85,79,.4);">Delete ticket</button>
         </div>
       </div>`;
     }).join('');
 
-    list.querySelectorAll('.ticket-top').forEach(el=>{
+    list.querySelectorAll('[data-toggle]').forEach(el=>{
       el.addEventListener('click', ()=>{
-        const id = el.closest('.ticket').dataset.id;
-        const body = $('body-'+id);
-        body.classList.toggle('hidden');
+        const id = el.dataset.toggle;
+        if(expandedIds.has(id)) expandedIds.delete(id); else expandedIds.add(id);
+        renderLog();
+      });
+    });
+    list.querySelectorAll('[data-kebab]').forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        const id = btn.dataset.kebab;
+        openMenuId = (openMenuId===id) ? null : id;
+        renderLog();
+      });
+    });
+    list.querySelectorAll('[data-editbtn]').forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        const id = btn.dataset.editbtn;
+        if(editModeIds.has(id)) editModeIds.delete(id); else editModeIds.add(id);
+        expandedIds.add(id);
+        openMenuId = null;
+        renderLog();
       });
     });
     list.querySelectorAll('[data-addroll]').forEach(btn=>{
-      btn.addEventListener('click', async ()=>{
+      btn.addEventListener('click', async (e)=>{
+        e.stopPropagation();
         const id = btn.dataset.addroll;
         const noteEl = $('rollnote-'+id);
         if(!noteEl.value.trim()) return;
@@ -634,11 +691,11 @@
         trade.rolls.push({date: new Date().toISOString(), note: noteEl.value.trim()});
         await saveTrades();
         renderLog();
-        setTimeout(()=>{ $('body-'+id).classList.remove('hidden'); }, 0);
       });
     });
     list.querySelectorAll('[data-save]').forEach(btn=>{
-      btn.addEventListener('click', async ()=>{
+      btn.addEventListener('click', async (e)=>{
+        e.stopPropagation();
         const id = btn.dataset.save;
         const trade = trades.find(t=>t.id===id);
         const body = $('body-'+id);
@@ -648,19 +705,29 @@
           else trade[key] = el.value;
         });
         if(trade.status==='closed' && !trade.closedDate) trade.closedDate = new Date().toISOString();
+        editModeIds.delete(id);
         await saveTrades();
         renderAll();
       });
     });
     list.querySelectorAll('[data-delete]').forEach(btn=>{
-      btn.addEventListener('click', async ()=>{
+      btn.addEventListener('click', async (e)=>{
+        e.stopPropagation();
         if(!confirm('Delete this ticket permanently?')) return;
         trades = trades.filter(t=>t.id!==btn.dataset.delete);
+        openMenuId = null;
         await saveTrades();
         renderAll();
       });
     });
   }
+
+  document.addEventListener('click', (e)=>{
+    if(openMenuId && !e.target.closest('.kebab-wrap')){
+      openMenuId = null;
+      renderLog();
+    }
+  });
 
   // DASHBOARD
   function renderDash(){
