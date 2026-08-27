@@ -58,6 +58,7 @@
   .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--brass-dim);}
   .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
   .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+  .row2 > input, .row2 > select, .row3 > input, .row3 > select{min-width:0;width:100%;}
   .helptext{font-size:10.5px;color:var(--muted);margin-top:4px;}
   .checkline{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--text);}
   .checkline input{width:auto;}
@@ -498,9 +499,15 @@
       gatesAtEntry: gates,
       status: 'open',
       dateOpened: new Date().toISOString(),
-      rolls: [], deviationFlag:false, deviationNote:'', actualEntry:'', outcome:'', rMultiple:'', matched:'', closedDate:''
+      rolls: [], deviationFlag:false, deviationNote:'', actualEntry:'', outcome:'', rMultiple:'', matched:'', closedDate:'',
+      parentId: pendingLinkParentId || null, childId: null
     };
     trades.unshift(trade);
+    if(pendingLinkParentId){
+      const parent = trades.find(t=>t.id===pendingLinkParentId);
+      if(parent) parent.childId = trade.id;
+      pendingLinkParentId = null;
+    }
     await saveTrades();
     // reset form
     document.querySelectorAll('#view-ticket input, #view-ticket textarea').forEach(el=>el.value='');
@@ -516,6 +523,18 @@
   });
 
   // LOG VIEW
+  function jumpToTicket(id){
+    setView('log');
+    expandedIds.add(id);
+    editModeIds.delete(id);
+    openMenuId = null;
+    renderLog();
+    setTimeout(()=>{
+      const el = document.querySelector(`.ticket[data-id="${id}"]`);
+      if(el) el.scrollIntoView({behavior:'smooth', block:'start'});
+    }, 50);
+  }
+
   function rollTypeLabel(type){
     return {rolled:'ROLLED OUT', closed:'CLOSED FOR PROFIT', pmcc:'CONVERTED TO PMCC', assigned:'ASSIGNED', other:'OTHER'}[type] || 'OTHER';
   }
@@ -543,7 +562,7 @@
             <div><span>IVR</span>${t.ivr||'—'}%</div>
             <div><span>${t.longstrike ? 'Short / Long strike' : 'Strike'}</span>${t.shortstrike||'—'}${t.longstrike ? ' / '+t.longstrike : ''} ${t.optiontype?('('+t.optiontype.toUpperCase()+')'):''}</div>
             <div><span>Expiration</span>${t.expdate||'—'}</div>
-            <div><span>Premium collected</span>${t.entry? '$'+t.entry : '—'}</div>
+            <div><span>Premium collected</span>${t.entry? '$'+t.entry : '—'}${t.cumulativePremium && Number(t.cumulativePremium)!==Number(t.entry) ? ' (running: $'+t.cumulativePremium+')' : ''}</div>
             <div><span>Profit target</span>${t.target? t.target+'% of premium' : '—'}</div>
             <div><span>Adj./roll trigger</span>${t.stop||'—'}</div>
             <div><span>Call cost (9mo)</span>${t.callcost? '$'+t.callcost : '—'}</div>
@@ -623,6 +642,8 @@
           </div>
         </div>
         <div class="ticket-body ${isOpen?'':'hidden'}" id="body-${t.id}">
+          ${t.parentId && trades.find(x=>x.id===t.parentId) ? `<div class="seg-pill" data-jump="${t.parentId}" style="cursor:pointer;border-color:#4C7EF3;color:#4C7EF3;margin-bottom:8px;display:inline-block;">↳ Continued from ${trades.find(x=>x.id===t.parentId).symbol} chain</div>` : ''}
+          ${t.childId && trades.find(x=>x.id===t.childId) ? `<div class="seg-pill" data-jump="${t.childId}" style="cursor:pointer;border-color:#4C7EF3;color:#4C7EF3;margin-bottom:8px;display:inline-block;">→ Continues in ${trades.find(x=>x.id===t.childId).symbol} chain</div>` : ''}
           ${isEdit ? editHTML : summaryHTML}
 
           ${t.gatesAtEntry && t.gatesAtEntry.length ? t.gatesAtEntry.map(g=>`<div class="gate ${g.level}"><div class="gt-title">${g.level==='breach'?'⛔':'⚠'} ${g.title} <span style="font-weight:400;opacity:.7;">(at entry)</span></div>${g.msg}</div>`).join('') : ''}
@@ -638,20 +659,36 @@
                   <span class="seg-pill" style="border-color:${rollTypeColor(r.type)};color:${rollTypeColor(r.type)};">${rollTypeLabel(r.type)}</span>
                   <span class="rd">${new Date(r.date).toLocaleDateString()}</span>
                 </div>
-                <div style="margin-top:5px;">${r.note||''}</div>
+                ${(r.strike||r.expdate||r.delta||r.premium) ? `<div class="kv" style="margin-top:6px;font-size:11px;">
+                  ${r.strike?`<div><span>Strike</span>${r.strike}</div>`:''}
+                  ${r.expdate?`<div><span>New exp.</span>${r.expdate}</div>`:''}
+                  ${r.delta?`<div><span>Delta</span>${r.delta}</div>`:''}
+                  ${r.premium?`<div><span>Credit collected</span>$${r.premium}</div>`:''}
+                </div>` : ''}
+                ${r.note ? `<div style="margin-top:5px;">${r.note}</div>` : ''}
                 ${r.type==='pmcc' ? `<button class="btn btn-ghost btn-small" style="margin-top:6px;" data-startpmcc="${t.id}">+ Start linked PMCC ticket</button>` : ''}
               </div>`).join('')}
             </div>
             <div class="row2" style="margin-top:8px;">
-              <select id="rolltype-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
+              <select class="rolltype-select" data-ticket="${t.id}" id="rolltype-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
                 <option value="rolled">Rolled out in time</option>
                 <option value="closed">Closed for profit</option>
                 <option value="pmcc">Converted to PMCC</option>
                 <option value="assigned">Assigned</option>
                 <option value="other">Other</option>
               </select>
-              <input type="text" placeholder="New strike/exp, price, or note" id="rollnote-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
             </div>
+            <div id="rolldetail-${t.id}" style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
+              <div class="row2">
+                <input type="number" step="0.5" placeholder="New strike (blank = unchanged)" id="rollstrike-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
+                <input type="date" id="rollexp-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
+              </div>
+              <div class="row2">
+                <input type="number" step="0.01" placeholder="New delta" id="rolldelta-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
+                <input type="number" step="0.01" placeholder="Credit collected on roll ($)" id="rollpremium-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
+              </div>
+            </div>
+            <input type="text" placeholder="Note (optional)" id="rollnote-${t.id}" style="margin-top:8px;width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
             <button class="btn btn-ghost btn-small" style="margin-top:6px;" data-addroll="${t.id}">+ Add adjustment</button>
           </div>
 
@@ -676,6 +713,12 @@
       </div>`;
     }).join('');
 
+    list.querySelectorAll('[data-jump]').forEach(el=>{
+      el.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        jumpToTicket(el.dataset.jump);
+      });
+    });
     list.querySelectorAll('[data-toggle]').forEach(el=>{
       el.addEventListener('click', ()=>{
         const id = el.dataset.toggle;
@@ -701,6 +744,12 @@
         renderLog();
       });
     });
+    list.querySelectorAll('.rolltype-select').forEach(sel=>{
+      sel.addEventListener('change', ()=>{
+        const id = sel.dataset.ticket;
+        $('rolldetail-'+id).classList.toggle('hidden', sel.value !== 'rolled');
+      });
+    });
     list.querySelectorAll('[data-addroll]').forEach(btn=>{
       btn.addEventListener('click', async (e)=>{
         e.stopPropagation();
@@ -709,8 +758,20 @@
         const typeEl = $('rolltype-'+id);
         const trade = trades.find(t=>t.id===id);
         trade.rolls = trade.rolls||[];
-        trade.rolls.push({date: new Date().toISOString(), type: typeEl.value, note: noteEl.value.trim()});
+        const rollEntry = {date: new Date().toISOString(), type: typeEl.value, note: noteEl.value.trim()};
+
+        if(typeEl.value==='rolled'){
+          const strikeEl = $('rollstrike-'+id), expEl = $('rollexp-'+id), deltaEl = $('rolldelta-'+id), premEl = $('rollpremium-'+id);
+          if(strikeEl.value){ rollEntry.strike = strikeEl.value; trade.shortstrike = strikeEl.value; }
+          if(expEl.value){ rollEntry.expdate = expEl.value; trade.expdate = expEl.value; }
+          if(deltaEl.value){ rollEntry.delta = deltaEl.value; trade.delta = deltaEl.value; }
+          if(premEl.value){ rollEntry.premium = premEl.value; trade.cumulativePremium = (Number(trade.cumulativePremium)||Number(trade.entry)||0) + Number(premEl.value); }
+          strikeEl.value=''; expEl.value=''; deltaEl.value=''; premEl.value='';
+        }
+
+        trade.rolls.push(rollEntry);
         if(typeEl.value==='closed' || typeEl.value==='assigned'){ trade.status = 'closed'; trade.closedDate = trade.closedDate || new Date().toISOString(); }
+        noteEl.value = '';
         await saveTrades();
         renderLog();
       });
@@ -720,6 +781,7 @@
         e.stopPropagation();
         const src = trades.find(t=>t.id===btn.dataset.startpmcc);
         if(!src) return;
+        pendingLinkParentId = src.id;
         setView('ticket');
         $('f_symbol').value = src.symbol||'';
         $('f_sector').value = src.sector||'Retail';
@@ -751,13 +813,20 @@
       btn.addEventListener('click', async (e)=>{
         e.stopPropagation();
         if(!confirm('Delete this ticket permanently?')) return;
-        trades = trades.filter(t=>t.id!==btn.dataset.delete);
+        const delId = btn.dataset.delete;
+        trades.forEach(t=>{
+          if(t.parentId===delId) t.parentId = null;
+          if(t.childId===delId) t.childId = null;
+        });
+        trades = trades.filter(t=>t.id!==delId);
         openMenuId = null;
         await saveTrades();
         renderAll();
       });
     });
   }
+
+  let pendingLinkParentId = null;
 
   document.addEventListener('click', (e)=>{
     if(openMenuId && !e.target.closest('.kebab-wrap')){
