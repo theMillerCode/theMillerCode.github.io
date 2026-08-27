@@ -516,6 +516,13 @@
   });
 
   // LOG VIEW
+  function rollTypeLabel(type){
+    return {rolled:'ROLLED OUT', closed:'CLOSED FOR PROFIT', pmcc:'CONVERTED TO PMCC', assigned:'ASSIGNED', other:'OTHER'}[type] || 'OTHER';
+  }
+  function rollTypeColor(type){
+    return {rolled:'var(--brass)', closed:'var(--pass)', pmcc:'#4C7EF3', assigned:'var(--warn)', other:'var(--muted)'}[type] || 'var(--muted)';
+  }
+
   let expandedIds = new Set();
   let editModeIds = new Set();
   let openMenuId = null;
@@ -626,12 +633,26 @@
           <div>
             <label style="font-size:11px;color:var(--muted);">Rolls / adjustments</label>
             <div id="rolls-${t.id}" style="display:flex;flex-direction:column;gap:6px;margin-top:6px;">
-              ${(t.rolls||[]).map(r=>`<div class="roll-item"><div class="rd">${new Date(r.date).toLocaleDateString()}</div>${r.note}</div>`).join('')}
+              ${(t.rolls||[]).map(r=>`<div class="roll-item">
+                <div style="display:flex;justify-content:space-between;align-items:center;">
+                  <span class="seg-pill" style="border-color:${rollTypeColor(r.type)};color:${rollTypeColor(r.type)};">${rollTypeLabel(r.type)}</span>
+                  <span class="rd">${new Date(r.date).toLocaleDateString()}</span>
+                </div>
+                <div style="margin-top:5px;">${r.note||''}</div>
+                ${r.type==='pmcc' ? `<button class="btn btn-ghost btn-small" style="margin-top:6px;" data-startpmcc="${t.id}">+ Start linked PMCC ticket</button>` : ''}
+              </div>`).join('')}
             </div>
             <div class="row2" style="margin-top:8px;">
-              <input type="text" placeholder="Roll note / why" id="rollnote-${t.id}" style="grid-column:span 2;background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
+              <select id="rolltype-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
+                <option value="rolled">Rolled out in time</option>
+                <option value="closed">Closed for profit</option>
+                <option value="pmcc">Converted to PMCC</option>
+                <option value="assigned">Assigned</option>
+                <option value="other">Other</option>
+              </select>
+              <input type="text" placeholder="New strike/exp, price, or note" id="rollnote-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
             </div>
-            <button class="btn btn-ghost btn-small" style="margin-top:6px;" data-addroll="${t.id}">+ Add roll</button>
+            <button class="btn btn-ghost btn-small" style="margin-top:6px;" data-addroll="${t.id}">+ Add adjustment</button>
           </div>
 
           <label class="checkline"><input type="checkbox" data-f="deviationFlag" ${t.deviationFlag?'checked':''}> Deviated from pre-trade plan</label>
@@ -685,12 +706,28 @@
         e.stopPropagation();
         const id = btn.dataset.addroll;
         const noteEl = $('rollnote-'+id);
-        if(!noteEl.value.trim()) return;
+        const typeEl = $('rolltype-'+id);
         const trade = trades.find(t=>t.id===id);
         trade.rolls = trade.rolls||[];
-        trade.rolls.push({date: new Date().toISOString(), note: noteEl.value.trim()});
+        trade.rolls.push({date: new Date().toISOString(), type: typeEl.value, note: noteEl.value.trim()});
+        if(typeEl.value==='closed' || typeEl.value==='assigned'){ trade.status = 'closed'; trade.closedDate = trade.closedDate || new Date().toISOString(); }
         await saveTrades();
         renderLog();
+      });
+    });
+    list.querySelectorAll('[data-startpmcc]').forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        const src = trades.find(t=>t.id===btn.dataset.startpmcc);
+        if(!src) return;
+        setView('ticket');
+        $('f_symbol').value = src.symbol||'';
+        $('f_sector').value = src.sector||'Retail';
+        $('f_strategy').value = 'PMCC Repair';
+        $('f_contracts').value = src.contracts||1;
+        $('f_thesis').value = `Converted from naked put on ${src.symbol} (originally logged ${new Date(src.dateOpened).toLocaleDateString()}).`;
+        refreshTicketForm();
+        window.scrollTo(0,0);
       });
     });
     list.querySelectorAll('[data-save]').forEach(btn=>{
