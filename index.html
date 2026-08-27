@@ -133,7 +133,10 @@
         <div class="section-head">Identity</div>
         <div class="section-body">
           <div class="row2">
-            <div class="field"><label>Symbol</label><input id="f_symbol" placeholder="WMT" style="text-transform:uppercase"></div>
+            <div class="field"><label>Symbol</label><input id="f_symbol" placeholder="XLE" style="text-transform:uppercase"></div>
+            <div class="field"><label>Contracts</label><input id="f_contracts" type="number" min="1" step="1" value="1"></div>
+          </div>
+          <div class="row2">
             <div class="field"><label>Sector</label>
               <select id="f_sector">
                 <option>Retail</option><option>Financials</option><option>Energy</option>
@@ -143,15 +146,15 @@
                 <option>Communication Services</option><option>Other</option>
               </select>
             </div>
-          </div>
-          <div class="field"><label>Strategy type</label>
-            <select id="f_strategy">
-              <option>IVR Mean-Reversion Spread</option>
-              <option>Wheel</option>
-              <option>PMCC Repair</option>
-              <option>Orderflow-Directional</option>
-              <option>Other</option>
-            </select>
+            <div class="field"><label>Strategy type</label>
+              <select id="f_strategy">
+                <option>IVR Mean-Reversion Spread</option>
+                <option>Wheel</option>
+                <option>PMCC Repair</option>
+                <option>Orderflow-Directional</option>
+                <option>Other</option>
+              </select>
+            </div>
           </div>
         </div>
       </div>
@@ -312,7 +315,7 @@
   function openTrades(){ return trades.filter(t=>t.status==='open'); }
 
   function leverageUsed(excludeId){
-    return openTrades().filter(t=>t.id!==excludeId).reduce((sum,t)=> sum + (Number(t.callcost)||0), 0);
+    return openTrades().filter(t=>t.id!==excludeId).reduce((sum,t)=> sum + ((Number(t.callcost)||0) * (Number(t.contracts)||1)), 0);
   }
 
   function sectorCounts(excludeId){
@@ -342,7 +345,7 @@
   }
 
   function renderLiveGauges(){
-    const cost = Number($('f_callcost').value)||0;
+    const cost = (Number($('f_callcost').value)||0) * (Number($('f_contracts').value)||1);
     const sector = $('f_sector').value;
     const lev = computeLeverage(cost, null);
     const color = lev.usedPct>100 ? 'var(--breach)' : (lev.usedPct>85 ? 'var(--warn)' : 'var(--pass)');
@@ -367,7 +370,7 @@
     const strategy = $('f_strategy').value;
     const haslevel = $('f_haslevel').value;
     const delta = Number($('f_delta').value);
-    const cost = Number($('f_callcost').value)||0;
+    const cost = (Number($('f_callcost').value)||0) * (Number($('f_contracts').value)||1);
     const sector = $('f_sector').value;
 
     // Gate 1: low IVR + earnings inside window
@@ -441,7 +444,7 @@
 
   function refreshTicketForm(){ renderLiveGauges(); renderGates(); updateIvrIndicator(); }
 
-  ['f_symbol','f_sector','f_strategy','f_ivr','f_ivrReason','f_daysEarnings','f_daysExp',
+  ['f_symbol','f_contracts','f_sector','f_strategy','f_ivr','f_ivrReason','f_daysEarnings','f_daysExp',
    'f_price','f_delta','f_callcost','f_structure','f_optiontype','f_expdate','f_shortstrike','f_longstrike',
    'f_haslevel','f_levelprice',
    'f_thesis','f_entry','f_stop','f_target','f_size'].forEach(id=>{
@@ -475,7 +478,7 @@
     const gates = evaluateGates();
     const trade = {
       id: 'T'+Date.now(),
-      symbol, sector: $('f_sector').value, strategy: $('f_strategy').value,
+      symbol, contracts: $('f_contracts').value || 1, sector: $('f_sector').value, strategy: $('f_strategy').value,
       ivr: $('f_ivr').value, ivrReason: $('f_ivrReason').value,
       daysEarnings: $('f_daysEarnings').value, daysExp: $('f_daysExp').value,
       price: $('f_price').value, delta: $('f_delta').value, callcost: $('f_callcost').value,
@@ -494,6 +497,7 @@
     await saveTrades();
     // reset form
     document.querySelectorAll('#view-ticket input, #view-ticket textarea').forEach(el=>el.value='');
+    $('f_contracts').value = 1;
     $('f_ivrReason').value='statistical'; $('f_structure').value='defined'; $('f_haslevel').value='yes'; $('f_optiontype').value='put';
     toggleLongStrike();
     targetTouched = false;
@@ -515,13 +519,14 @@
         <div class="ticket-top">
           <div>
             <div class="ticket-sym">${t.symbol}<span class="stamp ${stampClass}">${stampText}</span></div>
-            <div class="ticket-meta">${t.strategy} · ${t.sector}</div>
+            <div class="ticket-meta">${t.contracts&&t.contracts>1? t.contracts+'x · ':''}${t.strategy} · ${t.sector}</div>
           </div>
           <span class="status-pill ${t.status==='open'?'status-open':'status-closed'}">${t.status}</span>
         </div>
         <div class="ticket-body hidden" id="body-${t.id}">
           <div class="kv">
             <div><span>Thesis</span>${t.thesis||'—'}</div>
+            <div><span>Contracts</span>${t.contracts||1}</div>
             <div><span>IVR</span>${t.ivr||'—'}%</div>
             <div><span>${t.longstrike ? 'Short / Long strike' : 'Strike'}</span>${t.shortstrike||'—'}${t.longstrike ? ' / '+t.longstrike : ''} ${t.optiontype?('('+t.optiontype.toUpperCase()+')'):''}</div>
             <div><span>Expiration</span>${t.expdate||'—'}</div>
