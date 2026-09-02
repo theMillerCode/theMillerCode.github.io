@@ -694,11 +694,13 @@
                   <span class="seg-pill" style="border-color:${rollTypeColor(r.type)};color:${rollTypeColor(r.type)};">${rollTypeLabel(r.type)}</span>
                   <span class="rd">${new Date(r.date).toLocaleDateString()}</span>
                 </div>
-                ${(r.strike||r.expdate||r.delta||r.premium) ? `<div class="kv" style="margin-top:6px;font-size:11px;">
+                ${(r.strike||r.expdate||r.delta||r.premium||r.closeCost||r.closePrice) ? `<div class="kv" style="margin-top:6px;font-size:11px;">
                   ${r.strike?`<div><span>Strike</span>${r.strike}</div>`:''}
                   ${r.expdate?`<div><span>New exp.</span>${r.expdate}</div>`:''}
                   ${r.delta?`<div><span>Delta</span>${r.delta}</div>`:''}
                   ${r.premium?`<div><span>Credit collected</span>$${r.premium}</div>`:''}
+                  ${r.closeCost?`<div><span>Debit paid</span>$${r.closeCost}</div>`:''}
+                  ${r.closePrice?`<div><span>Price at close</span>$${r.closePrice}</div>`:''}
                 </div>` : ''}
                 ${r.note ? `<div style="margin-top:5px;">${r.note}</div>` : ''}
                 ${r.type==='pmcc' ? `<button class="btn btn-ghost btn-small" style="margin-top:6px;" data-startpmcc="${t.id}">+ Start linked PMCC ticket</button>` : ''}
@@ -722,6 +724,13 @@
                 <input type="number" step="0.01" placeholder="New delta" id="rolldelta-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
                 <input type="number" step="0.01" placeholder="Credit collected on roll ($)" id="rollpremium-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
               </div>
+            </div>
+            <div id="closedetail-${t.id}" class="hidden" style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
+              <div class="row2">
+                <input type="number" step="0.01" placeholder="Debit paid to close ($)" id="closecost-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
+                <input type="number" step="0.01" placeholder="Underlying price at close" id="closeprice-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
+              </div>
+              <div class="helptext">P&amp;L auto-calculates: premium collected minus debit paid to close, and fills in Outcome below.</div>
             </div>
             <input type="text" placeholder="Note (optional)" id="rollnote-${t.id}" style="margin-top:8px;width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
             <button class="btn btn-ghost btn-small" style="margin-top:6px;" data-addroll="${t.id}">+ Add adjustment</button>
@@ -783,6 +792,7 @@
       sel.addEventListener('change', ()=>{
         const id = sel.dataset.ticket;
         $('rolldetail-'+id).classList.toggle('hidden', sel.value !== 'rolled');
+        $('closedetail-'+id).classList.toggle('hidden', sel.value !== 'closed');
       });
     });
     list.querySelectorAll('[data-addroll]').forEach(btn=>{
@@ -802,6 +812,18 @@
           if(deltaEl.value){ rollEntry.delta = deltaEl.value; trade.delta = deltaEl.value; }
           if(premEl.value){ rollEntry.premium = premEl.value; trade.cumulativePremium = (Number(trade.cumulativePremium)||Number(trade.entry)||0) + Number(premEl.value); }
           strikeEl.value=''; expEl.value=''; deltaEl.value=''; premEl.value='';
+        }
+        if(typeEl.value==='closed'){
+          const costEl = $('closecost-'+id), priceEl = $('closeprice-'+id);
+          const totalCredit = Number(trade.cumulativePremium)||Number(trade.entry)||0;
+          if(costEl.value){
+            rollEntry.closeCost = costEl.value;
+            const pl = totalCredit - Number(costEl.value);
+            trade.outcome = pl.toFixed(2);
+            rollEntry.note = (rollEntry.note ? rollEntry.note+' — ' : '') + `Closed for $${costEl.value} debit, P&L $${pl.toFixed(2)}`;
+          }
+          if(priceEl.value){ rollEntry.closePrice = priceEl.value; }
+          costEl.value=''; priceEl.value='';
         }
 
         trade.rolls.push(rollEntry);
