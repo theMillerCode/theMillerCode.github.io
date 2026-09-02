@@ -579,6 +579,8 @@
 
   let expandedIds = new Set();
   let editModeIds = new Set();
+  let editingRollKey = null;
+  let editingRollTypeOverride = null;
   let openMenuId = null;
 
   function renderLog(){
@@ -686,58 +688,105 @@
           <div class="field"><label>Actual premium collected ($)</label><input type="number" step="0.01" value="${t.actualEntry||''}" data-f="actualEntry"></div>
           <div class="helptext" style="margin-top:-6px;">What you actually got filled at — compare against the ${t.entry? '$'+t.entry+' ' : ''}planned credit above.</div>
 
-          <div>
-            <label style="font-size:11px;color:var(--muted);">Rolls / adjustments</label>
-            <div id="rolls-${t.id}" style="display:flex;flex-direction:column;gap:6px;margin-top:6px;">
-              ${(t.rolls||[]).map(r=>`<div class="roll-item">
-                <div style="display:flex;justify-content:space-between;align-items:center;">
-                  <span class="seg-pill" style="border-color:${rollTypeColor(r.type)};color:${rollTypeColor(r.type)};">${rollTypeLabel(r.type)}</span>
-                  <span class="rd">${new Date(r.date).toLocaleDateString()}</span>
-                </div>
-                ${(r.strike||r.expdate||r.delta||r.premium||r.closeCost||r.closePrice) ? `<div class="kv" style="margin-top:6px;font-size:11px;">
-                  ${r.strike?`<div><span>Strike</span>${r.strike}</div>`:''}
-                  ${r.expdate?`<div><span>New exp.</span>${r.expdate}</div>`:''}
-                  ${r.delta?`<div><span>Delta</span>${r.delta}</div>`:''}
-                  ${r.premium?`<div><span>Credit collected</span>$${r.premium}</div>`:''}
-                  ${r.closeCost?`<div><span>Debit paid</span>$${r.closeCost}</div>`:''}
-                  ${r.closePrice?`<div><span>Price at close</span>$${r.closePrice}</div>`:''}
-                </div>` : ''}
-                ${r.note ? `<div style="margin-top:5px;">${r.note}</div>` : ''}
-                ${r.type==='pmcc' ? `<button class="btn btn-ghost btn-small" style="margin-top:6px;" data-startpmcc="${t.id}">+ Start linked PMCC ticket</button>` : ''}
-              </div>`).join('')}
-            </div>
-            <div class="row2" style="margin-top:8px;">
-              <select class="rolltype-select" data-ticket="${t.id}" id="rolltype-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
-                <option value="rolled">Rolled out in time</option>
-                <option value="closed">Closed for profit</option>
-                <option value="pmcc">Converted to PMCC</option>
-                <option value="assigned">Assigned</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-            <div id="rolldetail-${t.id}" style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
-              <div class="row2">
-                <input type="number" step="0.5" placeholder="New strike (blank = unchanged)" id="rollstrike-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
-                <input type="date" id="rollexp-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
-              </div>
-              <div class="row2">
-                <input type="number" step="0.01" placeholder="New delta" id="rolldelta-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
-                <input type="number" step="0.01" placeholder="Credit collected on roll ($)" id="rollpremium-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
-              </div>
-            </div>
-            <div id="closedetail-${t.id}" class="hidden" style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
-              <div class="row2">
-                <input type="number" step="0.01" placeholder="Debit paid to close ($)" id="closecost-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
-                <input type="number" step="0.01" placeholder="Underlying price at close" id="closeprice-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
-              </div>
-              <div class="helptext">P&amp;L auto-calculates: premium collected minus debit paid to close, and fills in Outcome below.</div>
-            </div>
-            <input type="text" placeholder="Note (optional)" id="rollnote-${t.id}" style="margin-top:8px;width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
-            <button class="btn btn-ghost btn-small" style="margin-top:6px;" data-addroll="${t.id}">+ Add adjustment</button>
-          </div>
+          <div style="border:1px solid var(--line);border-radius:9px;overflow:hidden;">
+            <div style="padding:10px 12px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--brass);background:var(--panel-2);border-bottom:1px solid var(--line);">Adjustments &amp; Deviation Log</div>
+            <div style="padding:12px;display:flex;flex-direction:column;gap:10px;">
 
-          <label class="checkline"><input type="checkbox" data-f="deviationFlag" ${t.deviationFlag?'checked':''}> Deviated from pre-trade plan</label>
-          <div class="field"><label>Deviation note (which step, and why)</label><textarea data-f="deviationNote">${t.deviationNote||''}</textarea></div>
+              <div id="rolls-${t.id}" style="display:flex;flex-direction:column;gap:6px;">
+                ${(t.rolls||[]).map((r,idx)=>{
+                  const key = t.id+':'+idx;
+                  if(editingRollKey===key){
+                    const effType = editingRollTypeOverride || r.type;
+                    return `<div class="roll-item">
+                      <div class="row2">
+                        <select class="edit-rolltype-select" data-idx="${idx}" data-ticket="${t.id}" id="editrolltype-${idx}-${t.id}" style="background:var(--panel);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;">
+                          <option value="rolled" ${effType==='rolled'?'selected':''}>Rolled out in time</option>
+                          <option value="closed" ${effType==='closed'?'selected':''}>Closed for profit</option>
+                          <option value="pmcc" ${effType==='pmcc'?'selected':''}>Converted to PMCC</option>
+                          <option value="assigned" ${effType==='assigned'?'selected':''}>Assigned</option>
+                          <option value="other" ${effType==='other'?'selected':''}>Other</option>
+                        </select>
+                      </div>
+                      ${effType==='rolled' ? `
+                      <div class="row2" style="margin-top:8px;">
+                        <input type="number" step="0.5" placeholder="Strike" value="${r.strike||''}" id="editstrike-${idx}-${t.id}" style="background:var(--panel);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;">
+                        <input type="date" value="${r.expdate||''}" id="editexp-${idx}-${t.id}" style="background:var(--panel);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;">
+                      </div>
+                      <div class="row2" style="margin-top:8px;">
+                        <input type="number" step="0.01" placeholder="Delta" value="${r.delta||''}" id="editdelta-${idx}-${t.id}" style="background:var(--panel);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;">
+                        <input type="number" step="0.01" placeholder="Credit collected" value="${r.premium||''}" id="editpremium-${idx}-${t.id}" style="background:var(--panel);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;">
+                      </div>` : ''}
+                      ${effType==='closed' ? `
+                      <div class="row2" style="margin-top:8px;">
+                        <input type="number" step="0.01" placeholder="Debit paid to close" value="${r.closeCost||''}" id="editclosecost-${idx}-${t.id}" style="background:var(--panel);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;">
+                        <input type="number" step="0.01" placeholder="Price at close" value="${r.closePrice||''}" id="editcloseprice-${idx}-${t.id}" style="background:var(--panel);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;">
+                      </div>` : ''}
+                      <input type="text" placeholder="Note" value="${(r.note||'').replace(/"/g,'&quot;')}" id="editnote-${idx}-${t.id}" style="margin-top:8px;width:100%;background:var(--panel);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;">
+                      <div style="display:flex;gap:10px;margin-top:8px;">
+                        <button class="btn btn-primary btn-small" data-saveroll="${key}" style="flex:1;">Save</button>
+                        <button class="btn btn-ghost btn-small" data-cancelroll style="flex:1;">Cancel</button>
+                      </div>
+                    </div>`;
+                  }
+                  return `<div class="roll-item">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                      <span class="seg-pill" style="border-color:${rollTypeColor(r.type)};color:${rollTypeColor(r.type)};">${rollTypeLabel(r.type)}</span>
+                      <span class="rd">${new Date(r.date).toLocaleDateString()}</span>
+                    </div>
+                    ${(r.strike||r.expdate||r.delta||r.premium||r.closeCost||r.closePrice) ? `<div class="kv" style="margin-top:6px;font-size:11px;">
+                      ${r.strike?`<div><span>Strike</span>${r.strike}</div>`:''}
+                      ${r.expdate?`<div><span>New exp.</span>${r.expdate}</div>`:''}
+                      ${r.delta?`<div><span>Delta</span>${r.delta}</div>`:''}
+                      ${r.premium?`<div><span>Credit collected</span>$${r.premium}</div>`:''}
+                      ${r.closeCost?`<div><span>Debit paid</span>$${r.closeCost}</div>`:''}
+                      ${r.closePrice?`<div><span>Price at close</span>$${r.closePrice}</div>`:''}
+                    </div>` : ''}
+                    ${r.note ? `<div style="margin-top:5px;">${r.note}</div>` : ''}
+                    <div style="display:flex;gap:14px;margin-top:7px;">
+                      <button style="background:none;border:none;padding:0;font-size:10.5px;color:var(--muted);text-decoration:underline;cursor:pointer;font-family:'IBM Plex Mono',monospace;" data-editroll="${key}">Edit</button>
+                      <button style="background:none;border:none;padding:0;font-size:10.5px;color:var(--breach);text-decoration:underline;cursor:pointer;font-family:'IBM Plex Mono',monospace;" data-deleteroll="${key}">Delete</button>
+                      ${r.type==='pmcc' ? `<button style="background:none;border:none;padding:0;font-size:10.5px;color:#4C7EF3;text-decoration:underline;cursor:pointer;font-family:'IBM Plex Mono',monospace;" data-startpmcc="${t.id}">Start linked PMCC ticket</button>` : ''}
+                    </div>
+                  </div>`;
+                }).join('')}
+              </div>
+
+              <div class="row2">
+                <select class="rolltype-select" data-ticket="${t.id}" id="rolltype-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
+                  <option value="rolled">Rolled out in time</option>
+                  <option value="closed">Closed for profit</option>
+                  <option value="pmcc">Converted to PMCC</option>
+                  <option value="assigned">Assigned</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div id="rolldetail-${t.id}" style="display:flex;flex-direction:column;gap:8px;">
+                <div class="row2">
+                  <input type="number" step="0.5" placeholder="New strike (blank = unchanged)" id="rollstrike-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
+                  <input type="date" id="rollexp-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
+                </div>
+                <div class="row2">
+                  <input type="number" step="0.01" placeholder="New delta" id="rolldelta-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
+                  <input type="number" step="0.01" placeholder="Credit collected on roll ($)" id="rollpremium-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
+                </div>
+              </div>
+              <div id="closedetail-${t.id}" class="hidden" style="display:flex;flex-direction:column;gap:8px;">
+                <div class="row2">
+                  <input type="number" step="0.01" placeholder="Debit paid to close ($)" id="closecost-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
+                  <input type="number" step="0.01" placeholder="Underlying price at close" id="closeprice-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
+                </div>
+                <div class="helptext">P&amp;L auto-calculates: premium collected minus debit paid to close, and fills in Outcome below.</div>
+              </div>
+              <input type="text" placeholder="Note (optional)" id="rollnote-${t.id}" style="width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
+              <button class="btn btn-ghost btn-small" data-addroll="${t.id}">+ Add adjustment</button>
+
+              <div style="border-top:1px dashed var(--line);padding-top:10px;">
+                <label class="checkline"><input type="checkbox" data-f="deviationFlag" ${t.deviationFlag?'checked':''}> This trade deviated from the pre-trade plan</label>
+                <div class="field" style="margin-top:8px;"><label>Deviation note (which adjustment, and why)</label><textarea data-f="deviationNote">${t.deviationNote||''}</textarea></div>
+              </div>
+
+            </div>
+          </div>
 
           <div class="row2">
             <div class="field"><label>Status</label>
@@ -793,6 +842,78 @@
         const id = sel.dataset.ticket;
         $('rolldetail-'+id).classList.toggle('hidden', sel.value !== 'rolled');
         $('closedetail-'+id).classList.toggle('hidden', sel.value !== 'closed');
+      });
+    });
+    list.querySelectorAll('[data-editroll]').forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        editingRollKey = btn.dataset.editroll;
+        editingRollTypeOverride = null;
+        renderLog();
+      });
+    });
+    list.querySelectorAll('.edit-rolltype-select').forEach(sel=>{
+      sel.addEventListener('change', ()=>{
+        editingRollTypeOverride = sel.value;
+        renderLog();
+      });
+    });
+    list.querySelectorAll('[data-cancelroll]').forEach(btn=>{
+      btn.addEventListener('click', (e)=>{
+        e.stopPropagation();
+        editingRollKey = null;
+        editingRollTypeOverride = null;
+        renderLog();
+      });
+    });
+    list.querySelectorAll('[data-deleteroll]').forEach(btn=>{
+      btn.addEventListener('click', async (e)=>{
+        e.stopPropagation();
+        if(!confirm('Delete this adjustment entry?')) return;
+        const [tid, idxStr] = btn.dataset.deleteroll.split(':');
+        const idx = Number(idxStr);
+        const trade = trades.find(t=>t.id===tid);
+        trade.rolls.splice(idx, 1);
+        editingRollKey = null;
+        editingRollTypeOverride = null;
+        await saveTrades();
+        renderLog();
+      });
+    });
+    list.querySelectorAll('[data-saveroll]').forEach(btn=>{
+      btn.addEventListener('click', async (e)=>{
+        e.stopPropagation();
+        const [tid, idxStr] = btn.dataset.saveroll.split(':');
+        const idx = Number(idxStr);
+        const trade = trades.find(t=>t.id===tid);
+        const r = trade.rolls[idx];
+        const newType = $('editrolltype-'+idx+'-'+tid).value;
+        r.type = newType;
+        r.note = $('editnote-'+idx+'-'+tid).value.trim();
+        if(newType==='rolled'){
+          const strikeEl = $('editstrike-'+idx+'-'+tid), expEl = $('editexp-'+idx+'-'+tid), deltaEl = $('editdelta-'+idx+'-'+tid), premEl = $('editpremium-'+idx+'-'+tid);
+          r.strike = strikeEl.value || '';
+          r.expdate = expEl.value || '';
+          r.delta = deltaEl.value || '';
+          r.premium = premEl.value || '';
+          if(strikeEl.value) trade.shortstrike = strikeEl.value;
+          if(expEl.value) trade.expdate = expEl.value;
+          if(deltaEl.value) trade.delta = deltaEl.value;
+        }
+        if(newType==='closed'){
+          const costEl = $('editclosecost-'+idx+'-'+tid), priceEl = $('editcloseprice-'+idx+'-'+tid);
+          r.closeCost = costEl.value || '';
+          r.closePrice = priceEl.value || '';
+          if(costEl.value){
+            const totalCredit = Number(trade.cumulativePremium)||Number(trade.entry)||0;
+            const pl = totalCredit - Number(costEl.value);
+            trade.outcome = pl.toFixed(2);
+          }
+        }
+        editingRollKey = null;
+        editingRollTypeOverride = null;
+        await saveTrades();
+        renderAll();
       });
     });
     list.querySelectorAll('[data-addroll]').forEach(btn=>{
