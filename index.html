@@ -104,6 +104,14 @@
   .roll-item{background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:12px;}
   .roll-item .rd{color:var(--muted);font-size:10px;}
 
+  .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .stat-box{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:12px;text-align:center;}
+  .stat-box .num{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:19px;}
+  .stat-box .lbl{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:4px;}
+  .bucket-row{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid var(--line);font-size:12px;gap:8px;}
+  .bucket-row:last-child{border-bottom:none;}
+  .bucket-row .name{font-family:'Space Grotesk',sans-serif;font-weight:600;flex-shrink:0;}
+  .bucket-row .stats{color:var(--muted);font-size:10.5px;text-align:right;}
   .empty{color:var(--muted);font-size:12.5px;text-align:center;padding:30px 10px;}
 
   /* Bottom nav */
@@ -273,6 +281,32 @@
       </div>
     </div>
 
+    <!-- STATS VIEW -->
+    <div id="view-stats" class="hidden">
+      <div class="section-head" style="border:none;padding-left:0;">Overview</div>
+      <div class="gauge-card" id="statsOverview" style="margin-top:6px;"></div>
+
+      <div class="section" style="margin-top:6px;">
+        <div class="section-head">By Strategy</div>
+        <div class="section-body" id="statsStrategy" style="padding-top:4px;"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-head">Cleared vs. Override</div>
+        <div class="section-body" id="statsDiscipline" style="padding-top:4px;"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-head">Matched Framework?</div>
+        <div class="section-body" id="statsFramework" style="padding-top:4px;"></div>
+      </div>
+
+      <div class="section">
+        <div class="section-head">Profit Target Hit Rate</div>
+        <div class="section-body" id="statsTarget" style="padding-top:4px;"></div>
+      </div>
+    </div>
+
   </div>
 
   <nav class="bottom">
@@ -280,6 +314,7 @@
       <button class="navbtn active" data-view="ticket"><span class="dot"></span>New Ticket</button>
       <button class="navbtn" data-view="log"><span class="dot"></span>Log Book</button>
       <button class="navbtn" data-view="dash"><span class="dot"></span>Dashboard</button>
+      <button class="navbtn" data-view="stats"><span class="dot"></span>Stats</button>
     </div>
   </nav>
 </div>
@@ -916,21 +951,82 @@
     reader.readAsText(file);
   });
 
+  function bucketBy(keyFn, closedList){
+    const map = {};
+    closedList.forEach(t=>{
+      const k = keyFn(t);
+      if(!map[k]) map[k] = {count:0, wins:0, withOutcome:0, totalPL:0};
+      map[k].count++;
+      if(t.outcome!=='' && t.outcome!=null && !isNaN(Number(t.outcome))){
+        map[k].withOutcome++;
+        map[k].totalPL += Number(t.outcome);
+        if(Number(t.outcome)>0) map[k].wins++;
+      }
+    });
+    return map;
+  }
+
+  function renderBucketRows(map){
+    const keys = Object.keys(map);
+    if(keys.length===0) return '<div class="empty" style="padding:14px 0;">No closed trades yet.</div>';
+    return keys.map(k=>{
+      const b = map[k];
+      const wr = b.withOutcome ? (b.wins/b.withOutcome*100) : null;
+      const plColor = b.totalPL>0?'var(--pass)':(b.totalPL<0?'var(--breach)':'var(--muted)');
+      return `<div class="bucket-row"><div class="name">${k}</div><div class="stats">${b.count} trade${b.count!==1?'s':''}${wr!==null ? ' · '+fmtPct(wr)+' win' : ''} · <span style="color:${plColor};">${fmtMoney(b.totalPL)}</span></div></div>`;
+    }).join('');
+  }
+
+  function renderStats(){
+    const closed = trades.filter(t=>t.status==='closed');
+    const withOutcome = closed.filter(t=>t.outcome!=='' && t.outcome!=null && !isNaN(Number(t.outcome)));
+    const wins = withOutcome.filter(t=>Number(t.outcome)>0).length;
+    const winRate = withOutcome.length ? (wins/withOutcome.length*100) : null;
+    const totalPL = withOutcome.reduce((s,t)=>s+Number(t.outcome),0);
+    const rVals = closed.filter(t=>t.rMultiple!=='' && t.rMultiple!=null && !isNaN(Number(t.rMultiple))).map(t=>Number(t.rMultiple));
+    const avgR = rVals.length ? (rVals.reduce((a,b)=>a+b,0)/rVals.length) : null;
+
+    $('statsOverview').innerHTML = `<div class="stat-grid">
+      <div class="stat-box"><div class="num">${closed.length}</div><div class="lbl">Closed trades</div></div>
+      <div class="stat-box"><div class="num">${winRate!==null ? fmtPct(winRate) : '—'}</div><div class="lbl">Win rate</div></div>
+      <div class="stat-box"><div class="num" style="color:${totalPL>0?'var(--pass)':(totalPL<0?'var(--breach)':'var(--text)')};">${withOutcome.length ? fmtMoney(totalPL) : '—'}</div><div class="lbl">Total P&amp;L</div></div>
+      <div class="stat-box"><div class="num">${avgR!==null ? avgR.toFixed(2)+'R' : '—'}</div><div class="lbl">Avg R-multiple</div></div>
+    </div>`;
+
+    $('statsStrategy').innerHTML = renderBucketRows(bucketBy(t=>t.strategy||'Unspecified', closed));
+    $('statsDiscipline').innerHTML = renderBucketRows(bucketBy(t=>(t.gatesAtEntry&&t.gatesAtEntry.length>0)?'Override (flagged at entry)':'Cleared (no flags)', closed));
+    $('statsFramework').innerHTML = renderBucketRows(bucketBy(t=>t.matched==='yes'?'Matched framework':(t.matched==='no'?'Did not match':'Not tagged'), closed));
+
+    const targetEligible = closed.filter(t=> t.entry && t.target && t.outcome!=='' && t.outcome!=null && !isNaN(Number(t.outcome)));
+    if(targetEligible.length===0){
+      $('statsTarget').innerHTML = '<div class="empty" style="padding:14px 0;">Needs premium collected, profit target %, and outcome $ filled in on closed trades.</div>';
+    } else {
+      let hit = 0;
+      targetEligible.forEach(t=>{
+        const pctAchieved = Number(t.outcome)/Number(t.entry)*100;
+        if(pctAchieved >= Number(t.target)*0.95) hit++;
+      });
+      $('statsTarget').innerHTML = `<div class="bucket-row"><div class="name">Hit target</div><div class="stats">${hit} of ${targetEligible.length} closed trades (${fmtPct(hit/targetEligible.length*100)})</div></div>`;
+    }
+  }
+
   function renderAll(){
     refreshTicketForm();
     renderLog();
     renderDash();
+    renderStats();
   }
 
   // NAV
   function setView(v){
-    ['ticket','log','dash'].forEach(name=>{
+    ['ticket','log','dash','stats'].forEach(name=>{
       $('view-'+name).classList.toggle('hidden', name!==v);
     });
     document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('active', b.dataset.view===v));
-    $('viewLabel').textContent = v==='ticket' ? 'New Ticket' : (v==='log' ? 'Log Book' : 'Dashboard');
+    $('viewLabel').textContent = v==='ticket' ? 'New Ticket' : (v==='log' ? 'Log Book' : (v==='dash' ? 'Dashboard' : 'Trading Stats'));
     if(v==='log') renderLog();
     if(v==='dash') renderDash();
+    if(v==='stats') renderStats();
   }
   document.querySelectorAll('.navbtn').forEach(b=>{
     b.addEventListener('click', ()=>setView(b.dataset.view));
