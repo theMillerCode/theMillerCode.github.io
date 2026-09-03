@@ -204,7 +204,7 @@
             <div class="field"><label>Underlying price</label><input id="f_price" type="number" step="0.01" placeholder="102.40"></div>
             <div class="field"><label>Option delta</label><input id="f_delta" type="number" step="0.01" placeholder="0.30"></div>
           </div>
-          <div class="field"><label>ATM call cost, ~9mo out ($)</label><input id="f_callcost" type="number" step="0.01" placeholder="2860"></div>
+          <div class="field"><label>ATM call cost, ~9mo out (per contract $)</label><input id="f_callcost" type="number" step="0.01" placeholder="2860"></div>
           <div class="field"><label>Position structure</label>
             <select id="f_structure">
               <option value="defined">Defined-risk (spread with long leg)</option>
@@ -235,7 +235,7 @@
         <div class="section-body">
           <div class="field"><label>One-sentence thesis</label><textarea id="f_thesis" placeholder="IVR is in the 80th percentile with no earnings in the window; selling premium expecting IV compression."></textarea></div>
           <div class="row3">
-            <div class="field"><label>Credit / premium collected ($)</label><input id="f_entry" type="number" step="0.01" placeholder="185"></div>
+            <div class="field"><label>Credit / premium collected (per contract $)</label><input id="f_entry" type="number" step="0.01" placeholder="85"></div>
             <div class="field"><label>Profit target (% of premium)</label><input id="f_target" type="number" step="1" placeholder="100"></div>
             <div class="field"><label>Adj./roll trigger (price)</label><input id="f_stop" type="number" step="0.01"></div>
           </div>
@@ -540,6 +540,7 @@
       parentId: pendingLinkParentId || null, childId: null
     };
     trades.unshift(trade);
+    recomputeCumulativePremium(trade);
     if(pendingLinkParentId){
       const parent = trades.find(t=>t.id===pendingLinkParentId);
       if(parent) parent.childId = trade.id;
@@ -572,11 +573,21 @@
     }, 50);
   }
 
+  function recomputeCumulativePremium(trade){
+    const contracts = Number(trade.contracts)||1;
+    let total = (Number(trade.entry)||0)*contracts;
+    (trade.rolls||[]).forEach(r=>{
+      if(r.type==='rolled' && r.premium){ total += Number(r.premium)*contracts; }
+    });
+    trade.cumulativePremium = total;
+    return total;
+  }
+
   function capitalAtRiskFor(trade){
     const contracts = Number(trade.contracts)||1;
     if(trade.structure==='defined' && trade.shortstrike && trade.longstrike){
       const width = Math.abs(Number(trade.shortstrike)-Number(trade.longstrike));
-      const maxLoss = width*100*contracts - (Number(trade.cumulativePremium)||Number(trade.entry)||0);
+      const maxLoss = width*100*contracts - (Number(trade.cumulativePremium)||((Number(trade.entry)||0)*contracts));
       return maxLoss>0 ? maxLoss : null;
     }
     if(trade.strategy==='PMCC Repair' && trade.callcost){
@@ -616,7 +627,7 @@
             <div><span>IVR</span>${t.ivr||'—'}%</div>
             <div><span>${t.longstrike ? 'Short / Long strike' : 'Strike'}</span>${t.shortstrike||'—'}${t.longstrike ? ' / '+t.longstrike : ''} ${t.optiontype?('('+t.optiontype.toUpperCase()+')'):''}</div>
             <div><span>Expiration</span>${t.expdate||'—'}</div>
-            <div><span>Premium collected</span>${t.entry? '$'+t.entry : '—'}${t.cumulativePremium && Number(t.cumulativePremium)!==Number(t.entry) ? ' (running: $'+t.cumulativePremium+')' : ''}</div>
+            <div><span>Premium collected</span>${t.entry? '$'+((Number(t.entry)*(Number(t.contracts)||1)).toFixed(2))+' total ($'+t.entry+'/contract)' : '—'}${t.cumulativePremium && Number(t.cumulativePremium)!==(Number(t.entry)*(Number(t.contracts)||1)) ? ' — running: $'+Number(t.cumulativePremium).toFixed(2) : ''}</div>
             <div><span>Profit target</span>${t.target? t.target+'% of premium' : '—'}</div>
             <div><span>Adj./roll trigger</span>${t.stop||'—'}</div>
             <div><span>Call cost (9mo)</span>${t.callcost? '$'+t.callcost : '—'}</div>
@@ -664,7 +675,7 @@
             <div class="field"><label>Short strike</label><input type="number" step="0.5" value="${t.shortstrike||''}" data-f="shortstrike"></div>
             <div class="field"><label>Long strike</label><input type="number" step="0.5" value="${t.longstrike||''}" data-f="longstrike"></div>
           </div>
-          <div class="field"><label>ATM call cost, ~9mo ($)</label><input type="number" step="0.01" value="${t.callcost||''}" data-f="callcost"></div>
+          <div class="field"><label>ATM call cost, ~9mo (per contract $)</label><input type="number" step="0.01" value="${t.callcost||''}" data-f="callcost"></div>
           <div class="row2">
             <div class="field"><label>Support/resistance?</label>
               <select data-f="haslevel"><option value="yes" ${t.haslevel==='yes'?'selected':''}>Yes</option><option value="no" ${t.haslevel==='no'?'selected':''}>No</option></select>
@@ -672,7 +683,7 @@
             <div class="field"><label>Level price</label><input type="number" step="0.01" value="${t.levelprice||''}" data-f="levelprice"></div>
           </div>
           <div class="row3">
-            <div class="field"><label>Premium collected ($)</label><input type="number" step="0.01" value="${t.entry||''}" data-f="entry"></div>
+            <div class="field"><label>Premium collected (per contract $)</label><input type="number" step="0.01" value="${t.entry||''}" data-f="entry"></div>
             <div class="field"><label>Profit target (%)</label><input type="number" value="${t.target||''}" data-f="target"></div>
             <div class="field"><label>Adj./roll trigger</label><input type="number" step="0.01" value="${t.stop||''}" data-f="stop"></div>
           </div>
@@ -739,11 +750,11 @@
                       </div>
                       <div class="row2" style="margin-top:8px;">
                         <input type="number" step="0.01" placeholder="Delta" value="${r.delta||''}" id="editdelta-${idx}-${t.id}" style="background:var(--panel);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;">
-                        <input type="number" step="0.01" placeholder="Credit collected" value="${r.premium||''}" id="editpremium-${idx}-${t.id}" style="background:var(--panel);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;">
+                        <input type="number" step="0.01" placeholder="Credit (per contract)" value="${r.premium||''}" id="editpremium-${idx}-${t.id}" style="background:var(--panel);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;">
                       </div>` : ''}
                       ${effType==='closed' ? `
                       <div class="row2" style="margin-top:8px;">
-                        <input type="number" step="0.01" placeholder="Debit paid to close" value="${r.closeCost||''}" id="editclosecost-${idx}-${t.id}" style="background:var(--panel);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;">
+                        <input type="number" step="0.01" placeholder="Debit paid (per contract)" value="${r.closeCost||''}" id="editclosecost-${idx}-${t.id}" style="background:var(--panel);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;">
                         <input type="number" step="0.01" placeholder="Price at close" value="${r.closePrice||''}" id="editcloseprice-${idx}-${t.id}" style="background:var(--panel);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;">
                       </div>` : ''}
                       <input type="text" placeholder="Note" value="${(r.note||'').replace(/"/g,'&quot;')}" id="editnote-${idx}-${t.id}" style="margin-top:8px;width:100%;background:var(--panel);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:12.5px;">
@@ -762,8 +773,8 @@
                       ${r.strike?`<div><span>Strike</span>${r.strike}</div>`:''}
                       ${r.expdate?`<div><span>New exp.</span>${r.expdate}</div>`:''}
                       ${r.delta?`<div><span>Delta</span>${r.delta}</div>`:''}
-                      ${r.premium?`<div><span>Credit collected</span>$${r.premium}</div>`:''}
-                      ${r.closeCost?`<div><span>Debit paid</span>$${r.closeCost}</div>`:''}
+                      ${r.premium?`<div><span>Credit (per contract)</span>$${r.premium}</div>`:''}
+                      ${r.closeCost?`<div><span>Debit paid (per contract)</span>$${r.closeCost}</div>`:''}
                       ${r.closePrice?`<div><span>Price at close</span>$${r.closePrice}</div>`:''}
                     </div>` : ''}
                     ${r.note ? `<div style="margin-top:5px;">${r.note}</div>` : ''}
@@ -793,12 +804,12 @@
                 </div>
                 <div class="row2">
                   <input type="number" step="0.01" placeholder="New delta" id="rolldelta-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
-                  <input type="number" step="0.01" placeholder="Credit collected on roll ($)" id="rollpremium-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
+                  <input type="number" step="0.01" placeholder="Credit collected on roll (per contract $)" id="rollpremium-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
                 </div>
               </div>
               <div id="closedetail-${t.id}" class="hidden" style="display:flex;flex-direction:column;gap:8px;">
                 <div class="row2">
-                  <input type="number" step="0.01" placeholder="Debit paid to close ($)" id="closecost-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
+                  <input type="number" step="0.01" placeholder="Debit paid to close (per contract $)" id="closecost-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
                   <input type="number" step="0.01" placeholder="Underlying price at close" id="closeprice-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
                 </div>
                 <div class="helptext">P&amp;L auto-calculates: premium collected minus debit paid to close, and fills in Outcome below.</div>
@@ -924,6 +935,7 @@
         const idx = Number(idxStr);
         const trade = trades.find(t=>t.id===tid);
         trade.rolls.splice(idx, 1);
+        recomputeCumulativePremium(trade);
         editingRollKey = null;
         editingRollTypeOverride = null;
         await saveTrades();
@@ -955,13 +967,15 @@
           r.closeCost = costEl.value || '';
           r.closePrice = priceEl.value || '';
           if(costEl.value){
-            const totalCredit = Number(trade.cumulativePremium)||Number(trade.entry)||0;
-            const pl = totalCredit - Number(costEl.value);
+            const contracts = Number(trade.contracts)||1;
+            const totalCredit = recomputeCumulativePremium(trade);
+            const pl = totalCredit - (Number(costEl.value)*contracts);
             trade.outcome = pl.toFixed(2);
             const risk = capitalAtRiskFor(trade);
             if(risk) trade.returnPct = ((pl/risk)*100).toFixed(1);
           }
         }
+        recomputeCumulativePremium(trade);
         editingRollKey = null;
         editingRollTypeOverride = null;
         await saveTrades();
@@ -983,25 +997,27 @@
           if(strikeEl.value){ rollEntry.strike = strikeEl.value; trade.shortstrike = strikeEl.value; }
           if(expEl.value){ rollEntry.expdate = expEl.value; trade.expdate = expEl.value; }
           if(deltaEl.value){ rollEntry.delta = deltaEl.value; trade.delta = deltaEl.value; }
-          if(premEl.value){ rollEntry.premium = premEl.value; trade.cumulativePremium = (Number(trade.cumulativePremium)||Number(trade.entry)||0) + Number(premEl.value); }
+          if(premEl.value){ rollEntry.premium = premEl.value; }
           strikeEl.value=''; expEl.value=''; deltaEl.value=''; premEl.value='';
         }
         if(typeEl.value==='closed'){
           const costEl = $('closecost-'+id), priceEl = $('closeprice-'+id);
-          const totalCredit = Number(trade.cumulativePremium)||Number(trade.entry)||0;
+          const contracts = Number(trade.contracts)||1;
+          const totalCredit = recomputeCumulativePremium(trade);
           if(costEl.value){
             rollEntry.closeCost = costEl.value;
-            const pl = totalCredit - Number(costEl.value);
+            const pl = totalCredit - (Number(costEl.value)*contracts);
             trade.outcome = pl.toFixed(2);
             const risk = capitalAtRiskFor(trade);
             if(risk) trade.returnPct = ((pl/risk)*100).toFixed(1);
-            rollEntry.note = (rollEntry.note ? rollEntry.note+' — ' : '') + `Closed for $${costEl.value} debit, P&L $${pl.toFixed(2)}`;
+            rollEntry.note = (rollEntry.note ? rollEntry.note+' — ' : '') + `Closed for $${costEl.value}/contract debit, P&L $${pl.toFixed(2)}`;
           }
           if(priceEl.value){ rollEntry.closePrice = priceEl.value; }
           costEl.value=''; priceEl.value='';
         }
 
         trade.rolls.push(rollEntry);
+        recomputeCumulativePremium(trade);
         if(typeEl.value==='closed' || typeEl.value==='assigned'){ trade.status = 'closed'; trade.closedDate = trade.closedDate || new Date().toISOString(); }
         noteEl.value = '';
         await saveTrades();
@@ -1036,6 +1052,7 @@
           else trade[key] = el.value;
         });
         if(trade.status==='closed' && !trade.closedDate) trade.closedDate = new Date().toISOString();
+        recomputeCumulativePremium(trade);
         editModeIds.delete(id);
         await saveTrades();
         renderAll();
@@ -1200,7 +1217,8 @@
     } else {
       let hit = 0;
       targetEligible.forEach(t=>{
-        const pctAchieved = Number(t.outcome)/Number(t.entry)*100;
+        const totalEntry = Number(t.entry)*(Number(t.contracts)||1);
+        const pctAchieved = Number(t.outcome)/totalEntry*100;
         if(pctAchieved >= Number(t.target)*0.95) hit++;
       });
       $('statsTarget').innerHTML = `<div class="bucket-row"><div class="name">Hit target</div><div class="stats">${hit} of ${targetEligible.length} closed trades (${fmtPct(hit/targetEligible.length*100)})</div></div>`;
