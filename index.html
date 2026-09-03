@@ -104,7 +104,8 @@
   .roll-item{background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:8px 10px;font-size:12px;}
   .roll-item .rd{color:var(--muted);font-size:10px;}
 
-  .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .stat-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+  .stat-grid .stat-box:last-child:nth-child(odd){grid-column:1 / -1;}
   .stat-box{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:12px;text-align:center;}
   .stat-box .num{font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:19px;}
   .stat-box .lbl{font-size:9.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-top:4px;}
@@ -1165,17 +1166,26 @@
     reader.readAsText(file);
   });
 
+  function daysInTrade(t){
+    if(!t.dateOpened || !t.closedDate) return null;
+    const ms = new Date(t.closedDate) - new Date(t.dateOpened);
+    if(isNaN(ms) || ms<0) return null;
+    return ms / (1000*60*60*24);
+  }
+
   function bucketBy(keyFn, closedList){
     const map = {};
     closedList.forEach(t=>{
       const k = keyFn(t);
-      if(!map[k]) map[k] = {count:0, wins:0, withOutcome:0, totalPL:0};
+      if(!map[k]) map[k] = {count:0, wins:0, withOutcome:0, totalPL:0, totalDays:0, daysCount:0};
       map[k].count++;
       if(t.outcome!=='' && t.outcome!=null && !isNaN(Number(t.outcome))){
         map[k].withOutcome++;
         map[k].totalPL += Number(t.outcome);
         if(Number(t.outcome)>0) map[k].wins++;
       }
+      const d = daysInTrade(t);
+      if(d!==null){ map[k].totalDays += d; map[k].daysCount++; }
     });
     return map;
   }
@@ -1186,8 +1196,9 @@
     return keys.map(k=>{
       const b = map[k];
       const wr = b.withOutcome ? (b.wins/b.withOutcome*100) : null;
+      const avgDays = b.daysCount ? (b.totalDays/b.daysCount) : null;
       const plColor = b.totalPL>0?'var(--pass)':(b.totalPL<0?'var(--breach)':'var(--muted)');
-      return `<div class="bucket-row"><div class="name">${k}</div><div class="stats">${b.count} trade${b.count!==1?'s':''}${wr!==null ? ' · '+fmtPct(wr)+' win' : ''} · <span style="color:${plColor};">${fmtMoney(b.totalPL)}</span></div></div>`;
+      return `<div class="bucket-row"><div class="name">${k}</div><div class="stats">${b.count} trade${b.count!==1?'s':''}${wr!==null ? ' · '+fmtPct(wr)+' win' : ''} · <span style="color:${plColor};">${fmtMoney(b.totalPL)}</span>${avgDays!==null ? ' · '+avgDays.toFixed(1)+'d avg' : ''}</div></div>`;
     }).join('');
   }
 
@@ -1199,12 +1210,15 @@
     const totalPL = withOutcome.reduce((s,t)=>s+Number(t.outcome),0);
     const rVals = closed.filter(t=>t.returnPct!=='' && t.returnPct!=null && !isNaN(Number(t.returnPct))).map(t=>Number(t.returnPct));
     const avgR = rVals.length ? (rVals.reduce((a,b)=>a+b,0)/rVals.length) : null;
+    const dayVals = closed.map(daysInTrade).filter(d=>d!==null);
+    const avgDays = dayVals.length ? (dayVals.reduce((a,b)=>a+b,0)/dayVals.length) : null;
 
     $('statsOverview').innerHTML = `<div class="stat-grid">
       <div class="stat-box"><div class="num">${closed.length}</div><div class="lbl">Closed trades</div></div>
       <div class="stat-box"><div class="num">${winRate!==null ? fmtPct(winRate) : '—'}</div><div class="lbl">Win rate</div></div>
       <div class="stat-box"><div class="num" style="color:${totalPL>0?'var(--pass)':(totalPL<0?'var(--breach)':'var(--text)')};">${withOutcome.length ? fmtMoney(totalPL) : '—'}</div><div class="lbl">Total P&amp;L</div></div>
       <div class="stat-box"><div class="num">${avgR!==null ? avgR.toFixed(1)+'%' : '—'}</div><div class="lbl">Avg Return on Capital</div></div>
+      <div class="stat-box"><div class="num">${avgDays!==null ? avgDays.toFixed(1) : '—'}</div><div class="lbl">Avg Days in Trade</div></div>
     </div>`;
 
     $('statsStrategy').innerHTML = renderBucketRows(bucketBy(t=>t.strategy||'Unspecified', closed));
