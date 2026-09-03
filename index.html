@@ -536,7 +536,7 @@
       gatesAtEntry: gates,
       status: 'open',
       dateOpened: new Date().toISOString(),
-      rolls: [], deviationFlag:false, deviationNote:'', actualEntry:'', outcome:'', rMultiple:'', matched:'', closedDate:'',
+      rolls: [], deviationFlag:false, deviationNote:'', actualEntry:'', outcome:'', returnPct:'', matched:'', closedDate:'',
       parentId: pendingLinkParentId || null, childId: null
     };
     trades.unshift(trade);
@@ -570,6 +570,19 @@
       const el = document.querySelector(`.ticket[data-id="${id}"]`);
       if(el) el.scrollIntoView({behavior:'smooth', block:'start'});
     }, 50);
+  }
+
+  function capitalAtRiskFor(trade){
+    const contracts = Number(trade.contracts)||1;
+    if(trade.structure==='defined' && trade.shortstrike && trade.longstrike){
+      const width = Math.abs(Number(trade.shortstrike)-Number(trade.longstrike));
+      const maxLoss = width*100*contracts - (Number(trade.cumulativePremium)||Number(trade.entry)||0);
+      return maxLoss>0 ? maxLoss : null;
+    }
+    if(trade.strategy==='PMCC Repair' && trade.callcost){
+      return Number(trade.callcost)*contracts;
+    }
+    return null; // undefined risk (naked put) — no clean basis to auto-calc
   }
 
   function rollTypeLabel(type){
@@ -772,6 +785,7 @@
                   <option value="other">Other</option>
                 </select>
               </div>
+              ${t.status==='closed' ? `<div class="helptext">This position is already closed. Only add another adjustment here to correct the record or log a reopen.</div>` : ''}
               <div id="rolldetail-${t.id}" style="display:flex;flex-direction:column;gap:8px;">
                 <div class="row2">
                   <input type="number" step="0.5" placeholder="New strike (blank = unchanged)" id="rollstrike-${t.id}" style="background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
@@ -790,7 +804,7 @@
                 <div class="helptext">P&amp;L auto-calculates: premium collected minus debit paid to close, and fills in Outcome below.</div>
               </div>
               <input type="text" placeholder="Note (optional)" id="rollnote-${t.id}" style="width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:6px;font-family:'IBM Plex Mono',monospace;font-size:13px;">
-              <button class="btn btn-ghost btn-small" data-addroll="${t.id}">+ Add adjustment</button>
+              <button class="btn btn-ghost btn-small" id="addbtn-${t.id}" data-addroll="${t.id}">+ Add Adjustment</button>
               `}
 
             </div>
@@ -809,13 +823,14 @@
               </div>
               <div class="row2">
                 <div class="field"><label>Outcome ($)</label><input type="number" step="0.01" value="${t.outcome||''}" data-f="outcome"></div>
-                <div class="field"><label>R-multiple</label><input type="number" step="0.01" value="${t.rMultiple||''}" data-f="rMultiple"></div>
+                <div class="field"><label>Return on capital (%)</label><input type="number" step="0.1" value="${t.returnPct||''}" data-f="returnPct"></div>
               </div>
-              <div class="helptext" style="margin-top:-4px;">Outcome auto-fills when you log a "Closed for profit" adjustment above — override here only if it needs correcting.</div>
+              <div class="helptext" style="margin-top:-4px;">Both auto-fill from a "Closed for profit" adjustment above (return % only for defined-risk spreads and PMCC trades — undefined for naked puts). Override here if needed.</div>
             </div>
           </div>
 
-          <button class="btn btn-primary btn-small" data-save="${t.id}">Save</button>
+          <div class="helptext" style="text-align:center;">Adjustments above save immediately when logged. Use Save Changes below for edits to trade details, deviation notes, or trade result overrides.</div>
+          <button class="btn btn-primary btn-small" data-save="${t.id}">Save Changes</button>
         </div>
       </div>`;
     }).join('');
@@ -856,6 +871,20 @@
         const id = sel.dataset.ticket;
         $('rolldetail-'+id).classList.toggle('hidden', sel.value !== 'rolled');
         $('closedetail-'+id).classList.toggle('hidden', sel.value !== 'closed');
+        const btn = $('addbtn-'+id);
+        if(sel.value==='closed'){
+          btn.textContent = 'Close Position';
+          btn.className = 'btn btn-small';
+          btn.style.background = 'var(--pass)';
+          btn.style.color = '#0a1f16';
+          btn.style.border = 'none';
+        } else {
+          btn.textContent = '+ Add Adjustment';
+          btn.className = 'btn btn-ghost btn-small';
+          btn.style.background = '';
+          btn.style.color = '';
+          btn.style.border = '';
+        }
       });
     });
     list.querySelectorAll('.subtab-btn').forEach(btn=>{
@@ -929,6 +958,8 @@
             const totalCredit = Number(trade.cumulativePremium)||Number(trade.entry)||0;
             const pl = totalCredit - Number(costEl.value);
             trade.outcome = pl.toFixed(2);
+            const risk = capitalAtRiskFor(trade);
+            if(risk) trade.returnPct = ((pl/risk)*100).toFixed(1);
           }
         }
         editingRollKey = null;
@@ -962,6 +993,8 @@
             rollEntry.closeCost = costEl.value;
             const pl = totalCredit - Number(costEl.value);
             trade.outcome = pl.toFixed(2);
+            const risk = capitalAtRiskFor(trade);
+            if(risk) trade.returnPct = ((pl/risk)*100).toFixed(1);
             rollEntry.note = (rollEntry.note ? rollEntry.note+' — ' : '') + `Closed for $${costEl.value} debit, P&L $${pl.toFixed(2)}`;
           }
           if(priceEl.value){ rollEntry.closePrice = priceEl.value; }
@@ -1147,14 +1180,14 @@
     const wins = withOutcome.filter(t=>Number(t.outcome)>0).length;
     const winRate = withOutcome.length ? (wins/withOutcome.length*100) : null;
     const totalPL = withOutcome.reduce((s,t)=>s+Number(t.outcome),0);
-    const rVals = closed.filter(t=>t.rMultiple!=='' && t.rMultiple!=null && !isNaN(Number(t.rMultiple))).map(t=>Number(t.rMultiple));
+    const rVals = closed.filter(t=>t.returnPct!=='' && t.returnPct!=null && !isNaN(Number(t.returnPct))).map(t=>Number(t.returnPct));
     const avgR = rVals.length ? (rVals.reduce((a,b)=>a+b,0)/rVals.length) : null;
 
     $('statsOverview').innerHTML = `<div class="stat-grid">
       <div class="stat-box"><div class="num">${closed.length}</div><div class="lbl">Closed trades</div></div>
       <div class="stat-box"><div class="num">${winRate!==null ? fmtPct(winRate) : '—'}</div><div class="lbl">Win rate</div></div>
       <div class="stat-box"><div class="num" style="color:${totalPL>0?'var(--pass)':(totalPL<0?'var(--breach)':'var(--text)')};">${withOutcome.length ? fmtMoney(totalPL) : '—'}</div><div class="lbl">Total P&amp;L</div></div>
-      <div class="stat-box"><div class="num">${avgR!==null ? avgR.toFixed(2)+'R' : '—'}</div><div class="lbl">Avg R-multiple</div></div>
+      <div class="stat-box"><div class="num">${avgR!==null ? avgR.toFixed(1)+'%' : '—'}</div><div class="lbl">Avg Return on Capital</div></div>
     </div>`;
 
     $('statsStrategy').innerHTML = renderBucketRows(bucketBy(t=>t.strategy||'Unspecified', closed));
